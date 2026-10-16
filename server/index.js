@@ -21,7 +21,7 @@ const MAX_CHARS = 4000;
 // Semua lewat endpoint yang kompatibel OpenAI (baseURL).
 const ALL_PROVIDERS = [
   { name: 'gemini', key: env.GEMINI_API_KEY, baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    leader: env.GEMINI_MODEL_LEADER || 'gemini-3.5-flash', team: env.GEMINI_MODEL_TEAM || 'gemini-2.5-flash',
+    leader: env.GEMINI_MODEL_LEADER || 'gemini-3.5-flash', team: env.GEMINI_MODEL_TEAM || 'gemini-3.5-flash-lite',
     extra: { reasoning_effort: 'low' } },
   { name: 'groq', key: env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1',
     leader: env.GROQ_MODEL_LEADER || 'openai/gpt-oss-120b', team: env.GROQ_MODEL_TEAM || 'openai/gpt-oss-20b',

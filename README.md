@@ -61,7 +61,7 @@ Salin `.env.example` menjadi `.env`, lalu isi sesuai kebutuhan.
 | `OPENROUTER_API_KEY` | (kosong) | API key OpenRouter. |
 | `ACCESS_CODE` | (kosong) | Kode yang harus dimasukkan pengunjung. **Wajib diisi kalau situs publik.** |
 | `PORT` | `3001` | Port server backend. |
-| `GEMINI_MODEL_LEADER` / `_TEAM` | `gemini-3.5-flash` / `gemini-2.5-flash` | Model Gemini untuk leader / anggota tim. |
+| `GEMINI_MODEL_LEADER` / `_TEAM` | `gemini-3.5-flash` / `gemini-3.5-flash-lite` | Model Gemini untuk leader / anggota tim. |
 | `GROQ_MODEL_LEADER` / `_TEAM` | `openai/gpt-oss-120b` / `openai/gpt-oss-20b` | Model Groq. |
 | `OPENROUTER_MODEL_LEADER` / `_TEAM` | `google/gemma-4-31b-it:free` / `google/gemma-4-26b-a4b-it:free` | Model OpenRouter. |
 | `MAX_TOKENS` | `1500` | Panjang maksimal jawaban. |
