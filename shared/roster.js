@@ -12,6 +12,7 @@ export const DIVISIONS = [
   { id: 'reporting', name: 'Reporting', short: 'Report', color: '#14b8a6', row: 1, col: 2 },
   { id: 'account', name: 'Account Manager', short: 'Account', color: '#f5b82e', row: 2, col: 0 },
   { id: 'finance', name: 'Finance', short: 'Finance', color: '#64748b', row: 2, col: 1 },
+  { id: 'manager', name: 'Manajemen', short: 'GM', color: '#dc2626', row: 2, col: 2 },
 ];
 
 // look: skin = index SKIN, hair = warna, style = short | long | bun, glasses, hijab = warna
@@ -100,6 +101,11 @@ export const AGENTS = [
   A('melati', 'finance', 'Melati Handayani', 'F', 'Finance & Admin', 'invoice, termin, reminder tagihan, rekap',
     { skin: 0, hair: '#000000', style: 'long', hijab: '#d9e2f2' },
     ['Draft invoice termin pertama', 'Pesan sopan menagih pembayaran telat', 'Rekap tagihan bulanan']),
+
+  // ---------- General Manager: membagi brief ke leader divisi ----------
+  A('bram', 'manager', 'Bram Wijaksono', 'M', 'General Manager', 'membagi brief lintas divisi, koordinasi leader, review akhir',
+    { skin: 2, hair: '#4a4a4a', style: 'short', glasses: true },
+    ['Pitching klien baru: proposal, iklan, dan konten', 'Launching toko online dari nol sampai siap jualan', 'Rencana kerja 1 bulan untuk klien UMKM'], true),
 ];
 
 export const agentById = (id) => AGENTS.find((a) => a.id === id);

@@ -4,7 +4,8 @@
 //   node server/test-all.mjs            pertanyaan singkat (perkenalan), murah dan cepat
 //   node server/test-all.mjs --quick    pakai tombol cepat pertama tiap karyawan (jawaban panjang)
 //   node server/test-all.mjs rina putri cuma karyawan tertentu
-//   node server/test-all.mjs --team     mode kerja tim: brief ke tiap leader divisi, tim membagi & mengerjakan
+//   node server/test-all.mjs --team     mode kerja tim: brief ke tiap leader divisi + GM (bram), tim membagi & mengerjakan
+//   node server/test-all.mjs --team bram  cuma alur General Manager -> leader -> tim
 import { spawn } from 'node:child_process';
 import { AGENTS, agentsOf } from '../shared/roster.js';
 
@@ -14,13 +15,14 @@ const args = process.argv.slice(2);
 const useQuick = args.includes('--quick');
 const useTeam = args.includes('--team');
 const only = args.filter((a) => !a.startsWith('--'));
-const pool = useTeam ? AGENTS.filter((a) => a.leader && agentsOf(a.division).length > 1) : AGENTS;
+const pool = useTeam ? AGENTS.filter((a) => a.division === 'manager' || (a.leader && agentsOf(a.division).length > 1)) : AGENTS;
 const agents = only.length ? pool.filter((a) => only.includes(a.id)) : pool;
 const TEAM_BRIEF = {
   proposal: 'Buat proposal singkat jasa pembuatan website company profile untuk klinik gigi di Bandung, budget sekitar 15 juta.',
   ads: 'Buat copy iklan Meta Ads dan Google Ads untuk promo kopi susu literan "Kopi Senja", diskon 20% minggu ini.',
   social: 'Buat rencana konten Instagram 1 minggu untuk toko sepatu lokal yang baru buka, plus 2 caption dan 1 script Reels.',
   qa: 'Buat checklist QA sebelum handover website toko online WooCommerce (tampilan, fungsi checkout, kecepatan, SEO).',
+  manager: 'Klien baru: kedai kopi "Kopi Senja" di Bandung mau buka toko online. Siapkan proposal penawaran website Shopify, copy iklan Meta untuk launching, dan rencana konten Instagram 2 minggu pertama.',
   dev: 'Klien minta tombol WhatsApp melayang di website. Situsnya ada yang WordPress Elementor, Shopify, dan Webflow. Beri solusi masing-masing.',
 };
 if (!agents.length) throw new Error(`Karyawan tidak ditemukan: ${only.join(', ')}`);

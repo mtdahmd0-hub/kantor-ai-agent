@@ -1,6 +1,6 @@
 # Kantor AI
 
-Kantor isometrik 3D berisi 23 karyawan AI untuk digital agency. Klik karakter, lalu ngobrol langsung dengan orangnya.
+Kantor isometrik 3D berisi 24 karyawan AI untuk digital agency. Klik karakter, lalu ngobrol langsung dengan orangnya, atau serahkan brief ke tim.
 
 **Isi kantor** (satu ruangan per divisi):
 
@@ -14,8 +14,19 @@ Kantor isometrik 3D berisi 23 karyawan AI untuk digital agency. Klik karakter, l
 | Reporting | Kirana |
 | Account Manager | Rizky |
 | Finance | Melati |
+| Manajemen | Bram (General Manager) |
 
 Leader pakai model yang lebih pintar, anggota tim pakai model yang lebih ringan. Provider AI: Gemini (utama), lalu Groq dan OpenRouter sebagai cadangan otomatis. Semua agent hanya membuat **draft**, tidak mengirim apa pun ke klien.
+
+**Cara kerja tim**
+
+| Mode | Cara pakai | Yang terjadi |
+|---|---|---|
+| Chat biasa | Klik karakter mana pun, tulis pesan. | Satu karyawan menjawab. |
+| Kerjakan bareng tim | Di panel leader divisi (Rina, Putri, Dewi, Hendra, Arief), centang **Kerjakan bareng tim**. | Leader membagi tugas ke anggota, anggota mengerjakan bersamaan, leader menggabungkan jadi satu hasil final. |
+| Bagikan ke divisi | Di panel Bram (General Manager), centang **Bagikan ke divisi** (aktif bawaan). | Bram memilih divisi yang relevan, tiap leader bekerja bersama timnya, Bram menyatukan semuanya jadi satu paket kerja. |
+
+Mode tim memakai banyak panggilan AI sekaligus (sekitar 5 per divisi, 10-20 untuk Bram), jadi kuota gratis lebih cepat habis. `DAILY_MAX_REQUESTS` menghitung setiap panggilan AI. Tes semua mode: `node server/test-all.mjs --team`.
 
 **Teknologi:** Node.js + Express (backend, API kompatibel OpenAI: Gemini / Groq / OpenRouter), JavaScript biasa + Three.js (frontend), Vite (dev server dan build). Tanpa database.
 

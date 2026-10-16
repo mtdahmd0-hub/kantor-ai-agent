@@ -1,4 +1,4 @@
-import { agentById, agentsOf, divisionById } from '../shared/roster.js';
+import { AGENTS, agentById, agentsOf, divisionById } from '../shared/roster.js';
 import { renderMarkdown } from './md.js';
 import { getHistory, setHistory, clearHistory, streamChat } from './chat.js';
 
@@ -16,6 +16,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     teamToggle: $('team-toggle'),
     team: $('team-mode'),
     teamNames: $('team-names'),
+    teamLabel: $('team-label'),
     form: $('composer'),
     input: $('input'),
     send: $('btn-send'),
@@ -100,10 +101,13 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
       }
     }
 
-    // mode kerja tim: hanya untuk leader yang punya anggota
+    // mode kerja tim: leader yang punya anggota, atau GM (membagi ke leader divisi; default aktif)
+    const isGM = agent.division === 'manager';
     const mates = team.filter((m) => m.id !== agentId);
-    els.teamToggle.hidden = !(agent.leader && mates.length);
-    els.teamNames.textContent = `(${mates.map((m) => m.name.split(' ')[0]).join(', ')})`;
+    els.teamToggle.hidden = !(isGM || (agent.leader && mates.length));
+    els.teamLabel.textContent = isGM ? 'Bagikan ke divisi' : 'Kerjakan bareng tim';
+    els.teamNames.textContent = isGM ? '(leader & tim yang relevan)' : `(${mates.map((m) => m.name.split(' ')[0]).join(', ')})`;
+    els.team.checked = isGM;
 
     els.messages.innerHTML = '';
     els.quick.innerHTML = '';
@@ -177,7 +181,10 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     } catch (err) {
       live.delete(id);
       onStatus(id, 'idle');
-      if (team) for (const m of agentsOf(agentById(id).division)) onStatus(m.id, 'idle');
+      if (team) {
+        const div = agentById(id).division;
+        for (const m of AGENTS) if (!live.has(m.id) && (div === 'manager' || m.division === div)) onStatus(m.id, 'idle');
+      }
       if (err.name === 'AbortError') {
         setHistory(id, sent.slice(0, -1));
       } else {

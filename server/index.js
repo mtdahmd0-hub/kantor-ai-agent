@@ -3,8 +3,8 @@ import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { agentById, agentsOf } from '../shared/roster.js';
-import { buildSystemPrompt, teamPlanPrompt, TEAM_MEMBER, TEAM_FINAL } from './prompts.js';
+import { AGENTS, agentById, agentsOf, divisionById } from '../shared/roster.js';
+import { buildSystemPrompt, teamPlanPrompt, TEAM_MEMBER, TEAM_FINAL, managerPlanPrompt, MANAGER_TASK, MANAGER_FINAL } from './prompts.js';
 
 // ---------- Konfigurasi (lihat .env.example) ----------
 const env = process.env;
@@ -76,8 +76,7 @@ function dailyCap(req, res, next) {
   if (daily.count >= DAILY_MAX_REQUESTS) {
     return res.status(429).json({ error: 'Batas pemakaian harian tercapai. Coba lagi besok.' });
   }
-  daily.count += 1;
-  next();
+  next(); // yang dihitung tiap panggilan AI (lihat generate), karena mode tim/manager memanggil AI berkali-kali
 }
 
 // ---------- Util ----------
@@ -156,6 +155,7 @@ async function* streamOpenAI(p, model, system, messages, signal) {
 async function* generate(agent, system, messages, signal) {
   const tries = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
   if (agent.leader) tries.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
+  daily.count += 1;
   let lastErr = null;
   for (const [p, model] of tries) {
     let sent = false;
@@ -185,8 +185,9 @@ async function collect(gen) {
 
 const firstName = (a) => a.name.split(' ')[0];
 
-// Ambil JSON rencana dari jawaban leader. Kalau tidak bisa dibaca, semua anggota dapat brief utuh.
-function parsePlan(raw, mates, brief) {
+// Ambil JSON rencana dari jawaban leader/manager. Kalau tidak bisa dibaca: semua anggota dapat brief utuh,
+// atau error kalau fallbackAll = false (manager, supaya tidak memanggil semua divisi sekaligus).
+function parsePlan(raw, mates, brief, fallbackAll = true) {
   try {
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)[0]);
     const find = (id) => mates.find((m) => m.id === String(id).toLowerCase() || firstName(m).toLowerCase() === String(id).toLowerCase());
@@ -195,28 +196,16 @@ function parsePlan(raw, mates, brief) {
       .filter((t, i, all) => t.agent && t.task && all.findIndex((x) => x.agent === t.agent) === i);
     if (tasks.length) return { summary: String(j.rencana || '').trim(), tasks };
   } catch { /* pakai cadangan di bawah */ }
+  if (!fallbackAll) throw httpError(502, `rencana tidak terbaca: ${raw.slice(0, 120)}`);
   return { summary: '', tasks: mates.map((m) => ({ agent: m, task: `Kerjakan bagian dari brief ini sesuai keahlianmu (${m.focus}):\n${brief}` })) };
 }
 
-// Mode kerja tim: leader membagi tugas -> anggota mengerjakan bersamaan -> leader menggabungkan.
-// Menghasilkan teks markdown bertahap; onStatus(agentId, 'working'|'done'|'idle') untuk animasi karakter.
-async function* teamWork(leader, messages, signal, onStatus) {
-  const mates = agentsOf(leader.division).filter((a) => a.id !== leader.id);
-  const brief = messages[messages.length - 1].content;
-  const leaderSystem = buildSystemPrompt(leader);
-
-  // 1. Rencana
-  const planRaw = await collect(generate(leader, `${leaderSystem}\n\n${teamPlanPrompt(mates)}`, messages, signal));
-  const plan = parsePlan(planRaw, mates, brief);
-  yield `### Rencana ${firstName(leader)}\n${plan.summary ? `${plan.summary}\n\n` : ''}` +
-    plan.tasks.map((t) => `- **${firstName(t.agent)}** (${t.agent.role}): ${t.task.split('\n')[0].slice(0, 200)}`).join('\n') + '\n\n';
-
-  // 2. Anggota bekerja bersamaan. Satu anggota gagal tidak menghentikan tim.
-  const jobs = plan.tasks.map(async ({ agent, task }) => {
+// Jalankan tugas-tugas bersamaan; hasil dikeluarkan sesuai urutan tugas. Satu gagal tidak menghentikan yang lain.
+async function* runAll(tasks, work, signal, onStatus) {
+  const jobs = tasks.map(async ({ agent, task }) => {
     onStatus(agent.id, 'working');
-    const content = `Brief dari user untuk tim ${leader.division}:\n"""\n${brief}\n"""\n\nTugasmu dari ${leader.name}:\n${task}`;
     try {
-      const text = await collect(generate(agent, `${buildSystemPrompt(agent)}\n\n${TEAM_MEMBER}`, [{ role: 'user', content }], signal));
+      const text = await work(agent, task);
       onStatus(agent.id, 'done');
       return { agent, text };
     } catch (err) {
@@ -226,19 +215,76 @@ async function* teamWork(leader, messages, signal, onStatus) {
     }
   });
   for (const j of jobs) j.catch(() => {}); // saat dibatalkan, cegah unhandled rejection dari job yang belum ditunggu
+  for (const job of jobs) yield await job;
+}
+
+const planList = (who, summary, lines) => `### Rencana ${firstName(who)}\n${summary ? `${summary}\n\n` : ''}${lines.join('\n')}\n\n`;
+const firstLine = (s) => s.split('\n')[0].slice(0, 200);
+
+// Mode kerja tim: leader membagi tugas -> anggota mengerjakan bersamaan -> leader menggabungkan.
+// Menghasilkan teks markdown bertahap; onStatus(agentId, 'working'|'done'|'idle') untuk animasi karakter.
+// verbose = false: hanya hasil akhir (dipakai saat leader bekerja di bawah manager).
+async function* teamWork(leader, messages, signal, onStatus, verbose = true) {
+  const mates = agentsOf(leader.division).filter((a) => a.id !== leader.id);
+  const brief = messages[messages.length - 1].content;
+  const leaderSystem = buildSystemPrompt(leader);
+
+  // 1. Rencana
+  const planRaw = await collect(generate(leader, `${leaderSystem}\n\n${teamPlanPrompt(mates)}`, messages, signal));
+  const plan = parsePlan(planRaw, mates, brief);
+  if (verbose) yield planList(leader, plan.summary, plan.tasks.map((t) => `- **${firstName(t.agent)}** (${t.agent.role}): ${firstLine(t.task)}`));
+
+  // 2. Anggota bekerja bersamaan
+  const work = (agent, task) => collect(generate(agent, `${buildSystemPrompt(agent)}\n\n${TEAM_MEMBER}`,
+    [{ role: 'user', content: `Brief untuk tim ${divisionById(leader.division).name}:\n"""\n${brief}\n"""\n\nTugasmu dari ${leader.name}:\n${task}` }], signal));
   const results = [];
-  for (const job of jobs) {
-    const r = await job;
+  for await (const r of runAll(plan.tasks, work, signal, onStatus)) {
     results.push(r);
-    yield `### ${r.error ? '⚠️' : '✅'} ${firstName(r.agent)} · ${r.agent.role}\n${r.error ? `_Gagal: ${r.error}_` : r.text}\n\n`;
+    if (verbose) yield `### ${r.error ? '⚠️' : '✅'} ${firstName(r.agent)} · ${r.agent.role}\n${r.error ? `_Gagal: ${r.error}_` : r.text}\n\n`;
   }
   if (!results.some((r) => r.text)) throw httpError(503, 'semua anggota tim gagal');
 
   // 3. Leader menggabungkan
-  const work = results.filter((r) => r.text).map((r) => `## ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n');
-  yield `### 📝 Hasil akhir dari ${firstName(leader)}\n`;
+  const done = results.filter((r) => r.text).map((r) => `## ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n');
+  if (verbose) yield `### 📝 Hasil akhir dari ${firstName(leader)}\n`;
   yield* generate(leader, `${leaderSystem}\n\n${TEAM_FINAL}`,
-    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${work}` }], signal);
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${done}` }], signal);
+}
+
+// Mode manager: GM membagi brief ke penanggung jawab divisi -> tiap leader bekerja bersama timnya
+// (staf tunggal bekerja sendiri), semua divisi bersamaan -> GM menggabungkan jadi satu paket.
+async function* managerWork(manager, messages, signal, onStatus) {
+  const heads = AGENTS.filter((a) => a.id !== manager.id && (a.leader || agentsOf(a.division).length === 1));
+  const brief = messages[messages.length - 1].content;
+  const managerSystem = buildSystemPrompt(manager);
+  const divName = (a) => divisionById(a.division).name;
+  const hasTeam = (a) => agentsOf(a.division).length > 1;
+
+  // 1. Rencana: pilih divisi
+  const planRaw = await collect(generate(manager, `${managerSystem}\n\n${managerPlanPrompt(heads)}`, messages, signal));
+  const plan = parsePlan(planRaw, heads, brief, false);
+  yield planList(manager, plan.summary,
+    plan.tasks.map((t) => `- **${divName(t.agent)}** → ${firstName(t.agent)}${hasTeam(t.agent) ? ' & tim' : ''}: ${firstLine(t.task)}`));
+
+  // 2. Divisi bekerja bersamaan
+  const work = (head, task) => {
+    const content = `Brief dari user:\n"""\n${brief}\n"""\n\nTugas divisimu dari ${manager.name}:\n${task}`;
+    return hasTeam(head)
+      ? collect(teamWork(head, [{ role: 'user', content }], signal, onStatus, false))
+      : collect(generate(head, `${buildSystemPrompt(head)}\n\n${MANAGER_TASK}`, [{ role: 'user', content }], signal));
+  };
+  const results = [];
+  for await (const r of runAll(plan.tasks, work, signal, onStatus)) {
+    results.push(r);
+    yield `### ${r.error ? '⚠️' : '✅'} ${divName(r.agent)} · ${firstName(r.agent)}${hasTeam(r.agent) ? ' & tim' : ''}\n${r.error ? `_Gagal: ${r.error}_` : r.text}\n\n`;
+  }
+  if (!results.some((r) => r.text)) throw httpError(503, 'semua divisi gagal');
+
+  // 3. GM menggabungkan
+  const done = results.filter((r) => r.text).map((r) => `## ${divName(r.agent)} (${r.agent.name})\n${r.text}`).join('\n\n');
+  yield `### 📝 Hasil akhir dari ${firstName(manager)}\n`;
+  yield* generate(manager, `${managerSystem}\n\n${MANAGER_FINAL}`,
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja semua divisi:\n\n${done}` }], signal);
 }
 
 // ---------- API ----------
@@ -281,10 +327,12 @@ app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
         await sleep(25);
       }
     } else {
-      const team = req.body?.team === true && agent.leader && agentsOf(agent.division).length > 1;
-      if (team) daily.count += agentsOf(agent.division).length; // ±1 request per anggota + rencana + gabungan
-      const gen = team
-        ? teamWork(agent, messages, ac.signal, (who, state) => !closed && send({ who, state }))
+      // team: true -> GM membagi ke divisi, leader membagi ke anggota; selain itu chat biasa
+      const multi = req.body?.team !== true ? null
+        : agent.division === 'manager' ? managerWork
+          : agent.leader && agentsOf(agent.division).length > 1 ? teamWork : null;
+      const gen = multi
+        ? multi(agent, messages, ac.signal, (who, state) => !closed && send({ who, state }))
         : generate(agent, buildSystemPrompt(agent), messages, ac.signal);
       for await (const t of gen) if (!closed) send({ t });
     }
