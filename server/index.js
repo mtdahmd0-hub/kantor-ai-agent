@@ -3,8 +3,8 @@ import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { agentById } from '../shared/roster.js';
-import { buildSystemPrompt } from './prompts.js';
+import { agentById, agentsOf } from '../shared/roster.js';
+import { buildSystemPrompt, teamPlanPrompt, TEAM_MEMBER, TEAM_FINAL } from './prompts.js';
 
 // ---------- Konfigurasi (lihat .env.example) ----------
 const env = process.env;
@@ -149,6 +149,98 @@ async function* streamOpenAI(p, model, system, messages, signal) {
     }
   }
 }
+
+// Jawaban dari provider pertama yang berhasil (urutan PROVIDERS). Pindah ke provider berikutnya
+// hanya kalau gagal sebelum ada teks; kalau sebagian jawaban sudah keluar, errornya diteruskan.
+// Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim.
+async function* generate(agent, system, messages, signal) {
+  const tries = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
+  if (agent.leader) tries.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
+  let lastErr = null;
+  for (const [p, model] of tries) {
+    let sent = false;
+    try {
+      for await (const t of streamOpenAI(p, model, system, messages, signal)) {
+        sent = true;
+        yield t;
+      }
+      if (!sent) throw httpError(502, 'jawaban kosong');
+      console.log(`[chat] ${agent.id} via ${p.name} model=${model}`);
+      return;
+    } catch (err) {
+      if (signal.aborted) throw err;
+      lastErr = err;
+      console.error(`[chat error] ${p.name} model=${model}`, err?.status || '', String(err?.message || err).slice(0, 200));
+      if (sent) break;
+    }
+  }
+  throw lastErr;
+}
+
+async function collect(gen) {
+  let s = '';
+  for await (const t of gen) s += t;
+  return s;
+}
+
+const firstName = (a) => a.name.split(' ')[0];
+
+// Ambil JSON rencana dari jawaban leader. Kalau tidak bisa dibaca, semua anggota dapat brief utuh.
+function parsePlan(raw, mates, brief) {
+  try {
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)[0]);
+    const find = (id) => mates.find((m) => m.id === String(id).toLowerCase() || firstName(m).toLowerCase() === String(id).toLowerCase());
+    const tasks = (j.tugas || [])
+      .map((t) => ({ agent: find(t.id), task: String(t.tugas || '').trim() }))
+      .filter((t, i, all) => t.agent && t.task && all.findIndex((x) => x.agent === t.agent) === i);
+    if (tasks.length) return { summary: String(j.rencana || '').trim(), tasks };
+  } catch { /* pakai cadangan di bawah */ }
+  return { summary: '', tasks: mates.map((m) => ({ agent: m, task: `Kerjakan bagian dari brief ini sesuai keahlianmu (${m.focus}):\n${brief}` })) };
+}
+
+// Mode kerja tim: leader membagi tugas -> anggota mengerjakan bersamaan -> leader menggabungkan.
+// Menghasilkan teks markdown bertahap; onStatus(agentId, 'working'|'done'|'idle') untuk animasi karakter.
+async function* teamWork(leader, messages, signal, onStatus) {
+  const mates = agentsOf(leader.division).filter((a) => a.id !== leader.id);
+  const brief = messages[messages.length - 1].content;
+  const leaderSystem = buildSystemPrompt(leader);
+
+  // 1. Rencana
+  const planRaw = await collect(generate(leader, `${leaderSystem}\n\n${teamPlanPrompt(mates)}`, messages, signal));
+  const plan = parsePlan(planRaw, mates, brief);
+  yield `### Rencana ${firstName(leader)}\n${plan.summary ? `${plan.summary}\n\n` : ''}` +
+    plan.tasks.map((t) => `- **${firstName(t.agent)}** (${t.agent.role}): ${t.task.split('\n')[0].slice(0, 200)}`).join('\n') + '\n\n';
+
+  // 2. Anggota bekerja bersamaan. Satu anggota gagal tidak menghentikan tim.
+  const jobs = plan.tasks.map(async ({ agent, task }) => {
+    onStatus(agent.id, 'working');
+    const content = `Brief dari user untuk tim ${leader.division}:\n"""\n${brief}\n"""\n\nTugasmu dari ${leader.name}:\n${task}`;
+    try {
+      const text = await collect(generate(agent, `${buildSystemPrompt(agent)}\n\n${TEAM_MEMBER}`, [{ role: 'user', content }], signal));
+      onStatus(agent.id, 'done');
+      return { agent, text };
+    } catch (err) {
+      onStatus(agent.id, 'idle');
+      if (signal.aborted) throw err;
+      return { agent, text: '', error: friendlyError(err) };
+    }
+  });
+  for (const j of jobs) j.catch(() => {}); // saat dibatalkan, cegah unhandled rejection dari job yang belum ditunggu
+  const results = [];
+  for (const job of jobs) {
+    const r = await job;
+    results.push(r);
+    yield `### ${r.error ? '⚠️' : '✅'} ${firstName(r.agent)} · ${r.agent.role}\n${r.error ? `_Gagal: ${r.error}_` : r.text}\n\n`;
+  }
+  if (!results.some((r) => r.text)) throw httpError(503, 'semua anggota tim gagal');
+
+  // 3. Leader menggabungkan
+  const work = results.filter((r) => r.text).map((r) => `## ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n');
+  yield `### 📝 Hasil akhir dari ${firstName(leader)}\n`;
+  yield* generate(leader, `${leaderSystem}\n\n${TEAM_FINAL}`,
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${work}` }], signal);
+}
+
 // ---------- API ----------
 app.get('/api/config', (req, res) => {
   res.json({ demo: DEMO, needsCode: Boolean(ACCESS_CODE) });
@@ -189,28 +281,12 @@ app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
         await sleep(25);
       }
     } else {
-      const system = buildSystemPrompt(agent);
-      let sent = false;
-      let lastErr = null;
-      for (const p of PROVIDERS) {
-        const model = agent.leader ? p.leader : p.team;
-        try {
-          for await (const t of streamOpenAI(p, model, system, messages, ac.signal)) {
-            sent = true;
-            if (!closed) send({ t });
-          }
-          if (!sent) throw httpError(502, 'jawaban kosong');
-          console.log(`[chat] ${agent.id} via ${p.name} model=${model}`);
-          lastErr = null;
-          break;
-        } catch (err) {
-          if (closed) return;
-          lastErr = err;
-          console.error(`[chat error] ${p.name} model=${model}`, err?.status || '', String(err?.message || err).slice(0, 200));
-          if (sent) break; // sebagian jawaban sudah terkirim, jangan disambung provider lain
-        }
-      }
-      if (lastErr) throw lastErr;
+      const team = req.body?.team === true && agent.leader && agentsOf(agent.division).length > 1;
+      if (team) daily.count += agentsOf(agent.division).length; // ±1 request per anggota + rencana + gabungan
+      const gen = team
+        ? teamWork(agent, messages, ac.signal, (who, state) => !closed && send({ who, state }))
+        : generate(agent, buildSystemPrompt(agent), messages, ac.signal);
+      for await (const t of gen) if (!closed) send({ t });
     }
     if (!closed) send({ done: true });
   } catch (err) {

@@ -13,6 +13,9 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     mates: $('mates'),
     messages: $('messages'),
     quick: $('quick'),
+    teamToggle: $('team-toggle'),
+    team: $('team-mode'),
+    teamNames: $('team-names'),
     form: $('composer'),
     input: $('input'),
     send: $('btn-send'),
@@ -97,6 +100,11 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
       }
     }
 
+    // mode kerja tim: hanya untuk leader yang punya anggota
+    const mates = team.filter((m) => m.id !== agentId);
+    els.teamToggle.hidden = !(agent.leader && mates.length);
+    els.teamNames.textContent = `(${mates.map((m) => m.name.split(' ')[0]).join(', ')})`;
+
     els.messages.innerHTML = '';
     els.quick.innerHTML = '';
     const history = getHistory(agentId);
@@ -117,8 +125,11 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
   function syncSend() {
     const busy = live.has(currentId);
     els.send.disabled = busy || !els.input.value.trim();
-    els.input.placeholder = busy ? `${agentById(currentId).name.split(' ')[0]} lagi ngetik…` : 'Tulis pesan…';
+    els.input.placeholder = busy ? `${agentById(currentId).name.split(' ')[0]} lagi ngetik…`
+      : teamMode() ? 'Tulis brief untuk tim…' : 'Tulis pesan…';
   }
+
+  const teamMode = () => !els.teamToggle.hidden && els.team.checked;
 
   async function submit(text) {
     const id = currentId;
@@ -135,6 +146,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     els.input.value = '';
     autosize();
 
+    const team = teamMode();
     const l = { text: '', el: null, abort: new AbortController() };
     live.set(id, l);
     l.el = bubble('assistant', typingHtml);
@@ -146,6 +158,8 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     try {
       const full = await streamChat(id, sent, {
         signal: l.abort.signal,
+        team,
+        onWho: (who, state) => onStatus(who, state),
         onText: (_t, all) => {
           l.text = all;
           if (!l.raf) {
@@ -163,6 +177,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     } catch (err) {
       live.delete(id);
       onStatus(id, 'idle');
+      if (team) for (const m of agentsOf(agentById(id).division)) onStatus(m.id, 'idle');
       if (err.name === 'AbortError') {
         setHistory(id, sent.slice(0, -1));
       } else {
@@ -206,6 +221,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
       submit(els.input.value);
     }
   });
+  els.team.addEventListener('change', syncSend);
   els.close.addEventListener('click', () => onClose());
   els.reset.addEventListener('click', () => {
     if (!currentId) return;

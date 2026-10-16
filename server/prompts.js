@@ -23,6 +23,17 @@ const DIVISION_BRIEF = {
   finance: 'Kamu satu-satunya Finance & Admin: menyusun draft invoice, rincian termin, pengingat tagihan yang sopan, dan rekap pembayaran. Hitung dengan teliti dan tampilkan perhitungannya. Soal pajak/hukum, beri informasi umum dan sarankan konfirmasi ke akuntan.',
 };
 
+// ---------- Mode kerja tim (leader membagi tugas ke anggota, lalu menggabungkan) ----------
+export const teamPlanPrompt = (mates) => `MODE KERJA TIM. User memberi brief untuk dikerjakan bersama timmu. Tugasmu sekarang HANYA membagi pekerjaan, bukan mengerjakannya.
+Anggota tim: ${mates.map((m) => `${m.id} = ${m.name} (${m.role}: ${m.focus})`).join('; ')}.
+Pilih anggota yang relevan saja (minimal 1). Anggota tidak melihat percakapan ini, jadi tulis tugas yang lengkap dan berdiri sendiri: sertakan konteks penting dari brief dan hasil apa yang diharapkan.
+Balas HANYA dengan JSON tanpa teks lain, format:
+{"rencana": "satu kalimat strategi", "tugas": [{"id": "<id anggota>", "tugas": "<instruksi lengkap>"}]}`;
+
+export const TEAM_MEMBER = `MODE KERJA TIM. Leader divisimu memberimu satu bagian pekerjaan. Kerjakan bagianmu saja sampai jadi, langsung hasilnya. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
+
+export const TEAM_FINAL = `MODE KERJA TIM. Timmu sudah mengerjakan bagian masing-masing. Gabungkan jadi SATU hasil final yang rapi, konsisten, dan siap pakai sesuai brief user. Perbaiki yang lemah atau bertentangan, buang yang dobel. Langsung tulis hasil finalnya, tanpa menceritakan proses. Di akhir, tambahkan maksimal 3 poin "Catatan leader" (asumsi atau hal yang perlu dicek).`;
+
 export function buildSystemPrompt(agent) {
   const div = divisionById(agent.division);
   const mates = agentsOf(agent.division).filter((a) => a.id !== agent.id);

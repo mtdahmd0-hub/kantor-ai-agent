@@ -183,6 +183,11 @@ body.chatting #panel { transform: none; opacity: 1; pointer-events: auto; }
 }
 .q:hover { background: #f1f5fb; border-color: rgba(79, 124, 255, .5); }
 
+.team-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 16px 0; font-size: 12.5px; font-weight: 600; cursor: pointer; border-top: 1px solid var(--line); }
+.team-toggle[hidden] { display: none; }
+.team-toggle input { width: 16px; height: 16px; accent-color: var(--c, var(--accent)); cursor: pointer; }
+.team-toggle small { font-weight: 400; color: var(--ink-soft); }
+.team-toggle:not([hidden]) + .composer { border-top: 0; }
 .composer { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px 8px; border-top: 1px solid var(--line); }
 #input {
   flex: 1; resize: none; max-height: 140px; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px;

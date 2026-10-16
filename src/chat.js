@@ -44,14 +44,15 @@ export async function fetchConfig() {
 }
 
 // Mengirim riwayat + pesan baru. Memanggil onText(potongan) saat streaming.
+// team = mode kerja tim (khusus leader); onWho(agentId, status) dipanggil saat anggota mulai/selesai.
 // Melempar Error dengan .code === 401 bila kode akses salah.
-export async function streamChat(agentId, messages, { onText, signal }) {
+export async function streamChat(agentId, messages, { onText, onWho, signal, team = false }) {
   let res;
   try {
     res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-access-code': getCode() },
-      body: JSON.stringify({ agentId, messages }),
+      body: JSON.stringify({ agentId, messages, team }),
       signal,
     });
   } catch (e) {
@@ -84,6 +85,7 @@ export async function streamChat(agentId, messages, { onText, signal }) {
       let evt;
       try { evt = JSON.parse(raw.slice(5).trim()); } catch { continue; }
       if (evt.error) throw new Error(evt.error);
+      if (evt.who) onWho?.(evt.who, evt.state);
       if (evt.t) {
         full += evt.t;
         onText(evt.t, full);
