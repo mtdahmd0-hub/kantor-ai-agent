@@ -182,7 +182,7 @@ $('gate-form').addEventListener('submit', async (e) => {
     banner.hidden = false;
     banner.textContent = 'Backend belum jalan. Jalankan "npm run dev" atau "npm start" agar chat bisa dipakai.';
   } else if (config.demo) {
-    banner.textContent = 'Mode demo: server belum punya ANTHROPIC_API_KEY, jadi jawaban hanya contoh.';
+    banner.textContent = 'Mode demo: server belum punya API key AI, jadi jawaban hanya contoh.';
   }
   banner.hidden = !(config.offline || (config.demo && selectedId));
   if (config.needsCode && !getCode()) showGate('');
