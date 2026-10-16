@@ -15,9 +15,9 @@ Kantor isometrik 3D berisi 23 karyawan AI untuk digital agency. Klik karakter, l
 | Account Manager | Rizky |
 | Finance | Melati |
 
-Leader pakai model yang lebih pintar (Sonnet), anggota tim pakai model yang lebih murah (Haiku). Semua agent hanya membuat **draft**, tidak mengirim apa pun ke klien.
+Leader pakai model yang lebih pintar, anggota tim pakai model yang lebih ringan. Provider AI: Gemini (utama), lalu Groq dan OpenRouter sebagai cadangan otomatis. Semua agent hanya membuat **draft**, tidak mengirim apa pun ke klien.
 
-**Teknologi:** Node.js + Express (backend, Anthropic SDK), JavaScript biasa + Three.js (frontend), Vite (dev server dan build). Tanpa database.
+**Teknologi:** Node.js + Express (backend, API kompatibel OpenAI: Gemini / Groq / OpenRouter), JavaScript biasa + Three.js (frontend), Vite (dev server dan build). Tanpa database.
 
 ## Daftar isi
 
@@ -40,14 +40,14 @@ Leader pakai model yang lebih pintar (Sonnet), anggota tim pakai model yang lebi
 
 - **Node.js 20 atau lebih baru** (disarankan versi LTS terbaru).
 - **Folder project** `kantor-ai` (hasil clone atau extract).
-- **API key Anthropic** (opsional untuk tes tampilan, wajib untuk jawaban sungguhan). Buat di https://console.anthropic.com
+- **API key minimal satu provider** (opsional untuk tes tampilan, wajib untuk jawaban sungguhan): Gemini (https://aistudio.google.com/apikey), Groq (https://console.groq.com/keys), atau OpenRouter (https://openrouter.ai/keys).
 
 **Mode demo vs mode live**
 
 | Mode | Penjelasan |
 |---|---|
-| Demo | `ANTHROPIC_API_KEY` kosong. Jawaban berupa contoh, gratis. Cocok untuk tes tampilan. |
-| Live | `ANTHROPIC_API_KEY` terisi. Jawaban sungguhan dari Claude, dikenai biaya API. |
+| Demo | Semua `*_API_KEY` kosong. Jawaban berupa contoh, gratis. Cocok untuk tes tampilan. |
+| Live | Minimal satu `*_API_KEY` terisi. Jawaban sungguhan dari AI. Kalau provider pertama gagal, otomatis pindah ke berikutnya. |
 
 **Variabel di file `.env`**
 
@@ -55,11 +55,15 @@ Salin `.env.example` menjadi `.env`, lalu isi sesuai kebutuhan.
 
 | Variabel | Default | Fungsi |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | (kosong) | API key. Kosong = mode demo. |
+| `LLM_ORDER` | `gemini,groq,openrouter` | Urutan provider yang dicoba. |
+| `GEMINI_API_KEY` | (kosong) | API key Gemini. |
+| `GROQ_API_KEY` | (kosong) | API key Groq. |
+| `OPENROUTER_API_KEY` | (kosong) | API key OpenRouter. |
 | `ACCESS_CODE` | (kosong) | Kode yang harus dimasukkan pengunjung. **Wajib diisi kalau situs publik.** |
 | `PORT` | `3001` | Port server backend. |
-| `MODEL_LEADER` | `claude-sonnet-5-5` | Model untuk leader divisi (lebih pintar). |
-| `MODEL_TEAM` | `claude-haiku-4-5-20251001` | Model untuk anggota tim (lebih murah). |
+| `GEMINI_MODEL_LEADER` / `_TEAM` | `gemini-3.5-flash` / `gemini-2.5-flash` | Model Gemini untuk leader / anggota tim. |
+| `GROQ_MODEL_LEADER` / `_TEAM` | `openai/gpt-oss-120b` / `openai/gpt-oss-20b` | Model Groq. |
+| `OPENROUTER_MODEL_LEADER` / `_TEAM` | `google/gemma-4-31b-it:free` / `google/gemma-4-26b-a4b-it:free` | Model OpenRouter. |
 | `MAX_TOKENS` | `1500` | Panjang maksimal jawaban. |
 | `RATE_PER_MINUTE` | `15` | Batas request per IP per menit. |
 | `DAILY_MAX_REQUESTS` | `300` | Batas total request per hari (jam Jakarta). |
@@ -115,7 +119,7 @@ copy .env.example .env
 notepad .env
 ```
 
-Di Notepad, isi `ANTHROPIC_API_KEY` (kosongkan untuk mode demo), simpan, lalu tutup.
+Di Notepad, isi `GEMINI_API_KEY` dan/atau `GROQ_API_KEY`, `OPENROUTER_API_KEY` (kosongkan semua untuk mode demo), simpan, lalu tutup.
 
 **Langkah 5: Jalankan**
 
@@ -180,7 +184,7 @@ cp .env.example .env
 nano .env
 ```
 
-Isi `ANTHROPIC_API_KEY` (kosongkan untuk mode demo). Di nano: `Ctrl + O` lalu Enter untuk menyimpan, `Ctrl + X` untuk keluar.
+Isi `GEMINI_API_KEY` dan/atau `GROQ_API_KEY`, `OPENROUTER_API_KEY` (kosongkan semua untuk mode demo). Di nano: `Ctrl + O` lalu Enter untuk menyimpan, `Ctrl + X` untuk keluar.
 
 **Langkah 5: Jalankan**
 
@@ -206,7 +210,7 @@ Buka Safari atau Chrome ke http://localhost:5173. Untuk berhenti, tekan `Control
 
 Frontend dan backend berjalan dari satu server Node. Contoh di bawah untuk Ubuntu 22.04 atau 24.04, dengan alamat akhir `https://office.domainkamu.com` (subdomain boleh diganti sesukamu).
 
-> **Sebelum mulai:** siapkan akses SSH ke VPS, akses pengaturan DNS domain, dan API key Anthropic.
+> **Sebelum mulai:** siapkan akses SSH ke VPS, akses pengaturan DNS domain, dan API key AI (Gemini/Groq/OpenRouter).
 
 **Langkah 1: Arahkan DNS**
 
@@ -269,7 +273,7 @@ nano .env
 Isi minimal dua baris ini:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
+GEMINI_API_KEY=AIza-xxxxxxxx
 ACCESS_CODE=kode-rahasia-yang-susah-ditebak
 ```
 
@@ -368,7 +372,7 @@ Kalau memakai ZIP, upload dan extract versi baru (jangan timpa file `.env`), lal
 | Halaman putih / file tidak ditemukan | Jalankan `npm run build` lagi, lalu `pm2 restart kantor-ai`. |
 | Certbot gagal | Pastikan A record sudah mengarah ke IP VPS dan port 80/443 terbuka. |
 | Jawaban chat muncul sekaligus, tidak mengalir | Pastikan blok `location /api/chat` di nginx memakai `proxy_buffering off`. |
-| Mode masih DEMO | `ANTHROPIC_API_KEY` belum terbaca. Cek `.env` lalu `pm2 restart kantor-ai`. |
+| Mode masih DEMO | `*_API_KEY` belum terbaca. Cek `.env` lalu `pm2 restart kantor-ai`. |
 
 ---
 
@@ -377,7 +381,7 @@ Kalau memakai ZIP, upload dan extract versi baru (jangan timpa file `.env`), lal
 - **Wajib isi `ACCESS_CODE`** kalau situs bisa diakses publik.
 - API key hanya tersimpan di server (`.env`), tidak pernah dikirim ke browser.
 - Pengaman bawaan: `RATE_PER_MINUTE` (batas per IP), `DAILY_MAX_REQUESTS` (batas total per hari, jam Jakarta), dan `MAX_TOKENS` (panjang jawaban).
-- Pasang juga **batas pengeluaran bulanan** di Console Anthropic.
+- Pasang juga **batas pengeluaran bulanan** di dashboard tiap provider AI.
 - Pemakaian token tiap chat tercatat di log (`pm2 logs kantor-ai`).
 - Semua karyawan AI hanya membuat draft. Tidak ada yang mengirim apa pun ke klien.
 
@@ -402,7 +406,7 @@ Link langsung ke satu karyawan: `https://office.domainkamu.com/#rina`
 
 ```
 shared/roster.js   data karyawan & divisi (dipakai frontend dan backend)
-server/            Express + Claude API (streaming, batas pemakaian)
+server/            Express + API AI (streaming, fallback provider, batas pemakaian)
 src/               Three.js: scene, karakter, kamera, panel chat
 ```
 

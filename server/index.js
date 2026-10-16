@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import Anthropic from '@anthropic-ai/sdk';
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +18,7 @@ const MAX_CHARS = 4000;
 
 // Provider AI. Yang tidak punya key dilewati. Dicoba sesuai LLM_ORDER; kalau satu gagal
 // sebelum sempat mengirim teks, otomatis pindah ke provider berikutnya.
-// Selain claude, semua lewat endpoint yang kompatibel OpenAI (baseURL).
+// Semua lewat endpoint yang kompatibel OpenAI (baseURL).
 const ALL_PROVIDERS = [
   { name: 'gemini', key: env.GEMINI_API_KEY, baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
     leader: env.GEMINI_MODEL_LEADER || 'gemini-3.5-flash', team: env.GEMINI_MODEL_TEAM || 'gemini-2.5-flash',
@@ -29,10 +28,8 @@ const ALL_PROVIDERS = [
     extra: { reasoning_effort: 'low' } },
   { name: 'openrouter', key: env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1',
     leader: env.OPENROUTER_MODEL_LEADER || 'google/gemma-4-31b-it:free', team: env.OPENROUTER_MODEL_TEAM || 'google/gemma-4-26b-a4b-it:free' },
-  { name: 'claude', key: env.ANTHROPIC_API_KEY,
-    leader: env.MODEL_LEADER || 'claude-sonnet-5-5', team: env.MODEL_TEAM || 'claude-haiku-4-5-20251001' },
 ];
-const ORDER = (env.LLM_ORDER || 'gemini,groq,openrouter,claude').split(',').map((s) => s.trim());
+const ORDER = (env.LLM_ORDER || 'gemini,groq,openrouter').split(',').map((s) => s.trim());
 const PROVIDERS = ORDER.map((n) => ALL_PROVIDERS.find((p) => p.name === n && p.key)).filter(Boolean);
 
 const DEMO = !PROVIDERS.length;
@@ -100,7 +97,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function demoReply(agent, lastUser) {
   return (
     `Halo, gue ${agent.name.split(' ')[0]} (${agent.role}).\n\n` +
-    `**Mode demo**: server belum punya API key AI (GEMINI/GROQ/OPENROUTER/ANTHROPIC), jadi ini jawaban contoh supaya tampilan chat bisa dites.\n\n` +
+    `**Mode demo**: server belum punya API key AI (GEMINI/GROQ/OPENROUTER), jadi ini jawaban contoh supaya tampilan chat bisa dites.\n\n` +
     `Lo bilang: "${lastUser.slice(0, 160)}"\n\n` +
     `Setelah API key dipasang, gue bakal jawab sungguhan sesuai keahlian gue: ${agent.focus}.\n\n` +
     `- Poin contoh pertama\n- Poin contoh kedua\n- Poin contoh ketiga`
@@ -152,15 +149,6 @@ async function* streamOpenAI(p, model, system, messages, signal) {
     }
   }
 }
-
-async function* streamClaude(p, model, system, messages, signal) {
-  const stream = new Anthropic({ apiKey: p.key }).messages.stream(
-    { model, max_tokens: MAX_TOKENS, system, messages }, { signal });
-  for await (const ev of stream) {
-    if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') yield ev.delta.text;
-  }
-}
-
 // ---------- API ----------
 app.get('/api/config', (req, res) => {
   res.json({ demo: DEMO, needsCode: Boolean(ACCESS_CODE) });
@@ -207,8 +195,7 @@ app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
       for (const p of PROVIDERS) {
         const model = agent.leader ? p.leader : p.team;
         try {
-          const gen = (p.baseURL ? streamOpenAI : streamClaude)(p, model, system, messages, ac.signal);
-          for await (const t of gen) {
+          for await (const t of streamOpenAI(p, model, system, messages, ac.signal)) {
             sent = true;
             if (!closed) send({ t });
           }
