@@ -69,7 +69,8 @@ Salin `.env.example` menjadi `.env`, lalu isi sesuai kebutuhan.
 | `LLM_ORDER` | `groq,gemini,openrouter` | Urutan provider yang dicoba. Groq duluan karena jatah gratisnya paling besar (1.000 request/hari per model). |
 | `GEMINI_API_KEY` | (kosong) | API key Gemini. |
 | `GROQ_API_KEY` | (kosong) | API key Groq. |
-| `GROQ_STAFF_KEYS` | (kosong) | Opsional. Key akun Groq lain (dipisah koma) untuk anggota tim, digilir bergantian. Leader & GM pakai `GROQ_API_KEY`, yang juga jadi cadangan staf. |
+| `GROQ_STAFF_KEYS` | (kosong) | Opsional. Key akun Groq lain (dipisah koma). Staf digilir di akun-akun ini, leader & GM pakai `GROQ_API_KEY` dulu. Kalau jatah token/menit satu akun kurang, server langsung pindah ke akun Groq lain; antre hanya kalau semua akun sibuk. |
+| `TOKEN_WAIT_MS` | `20000` | Lama maksimal antre menunggu jatah token/menit Groq pulih sebelum pindah ke provider lain. |
 | `OPENROUTER_API_KEY` | (kosong) | API key OpenRouter. |
 | `ACCESS_CODE` | (kosong) | Kode yang harus dimasukkan pengunjung. **Wajib diisi kalau situs publik.** |
 | `PORT` | `3001` | Port server backend. |

@@ -36,15 +36,17 @@ const ORDER = (env.LLM_ORDER || 'groq,gemini,openrouter').split(',').map((s) => 
 const PROVIDERS = ORDER.map((n) => ALL_PROVIDERS.find((p) => p.name === n && p.key)).filter(Boolean);
 for (const p of PROVIDERS) p.staff ??= [];
 
-// Akun yang dicoba untuk satu panggilan, berurutan. Leader & GM: akun utama saja.
+// Akun yang dicoba untuk satu panggilan, berurutan.
+// Leader & GM: akun utama dulu, lalu akun staf (dipinjam saat akun utama sibuk/habis).
 // Anggota tim: akun staf digilir (mulai dari akun berikutnya tiap panggilan), lalu akun utama.
 let staffTurn = 0;
 function accountsFor(p, leader, rotate = true) {
   const main = { key: p.key, label: 'utama' };
-  if (leader || !p.staff.length) return [main];
+  if (!p.staff.length) return [main];
   const n = p.staff.length;
   const start = rotate ? staffTurn++ % n : 0;
-  return [...p.staff.map((_, i) => p.staff[(start + i) % n]), main];
+  const staff = p.staff.map((_, i) => p.staff[(start + i) % n]);
+  return leader ? [main, ...staff] : [...staff, main];
 }
 
 const DEMO = !PROVIDERS.length;
@@ -164,6 +166,38 @@ function noteHeaders(q, h) {
   if (limit == null) return;
   q.limit = Number(limit);
   q.remaining = Number(h.get('x-ratelimit-remaining-requests'));
+  if (h.get('x-ratelimit-limit-tokens') != null) { // jatah token per menit (Groq)
+    q.tokLimit = Number(h.get('x-ratelimit-limit-tokens'));
+    q.tokRemaining = Number(h.get('x-ratelimit-remaining-tokens'));
+    q.tokResetAt = Date.now() + parseDuration(h.get('x-ratelimit-reset-tokens'));
+  }
+}
+
+// Pemakaian token bertahap: sebelum memanggil, pesan perkiraan token dari jatah per menit akun ini.
+// canWait = false: kalau jatahnya kurang, langsung false (pindah ke akun lain tanpa menunggu).
+// canWait = true: tunggu sampai pulih (maks TOKEN_WAIT_MS) supaya tidak kena 429; lebih lama = false.
+// ponytail: perkiraan token kasar (huruf/4 + MAX_TOKENS) dan "pulih" dianggap penuh saat reset-tokens lewat;
+// kalau masih sering kena 429, naikkan pembagi atau kecilkan MAX_TOKENS.
+const TOKEN_WAIT_MS = Number(env.TOKEN_WAIT_MS || 20_000);
+const estimateTokens = (system, messages) =>
+  Math.ceil((system.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4) + MAX_TOKENS;
+
+async function reserveTokens(q, need, label, canWait) {
+  if (q.tokRemaining == null || need > q.tokLimit) return true; // belum tahu jatahnya / memang tidak muat
+  for (;;) {
+    if (Date.now() >= q.tokResetAt) q.tokRemaining = Math.max(q.tokRemaining, q.tokLimit);
+    if (q.tokRemaining >= need) break;
+    const wait = q.tokResetAt - Date.now();
+    if (!canWait) return false;
+    if (wait > TOKEN_WAIT_MS) {
+      console.log(`[antre] ${label} dilewati: perlu tunggu ${(wait / 1000).toFixed(0)}s (sisa ${q.tokRemaining}, butuh ±${need})`);
+      return false;
+    }
+    console.log(`[antre] ${label} tunggu ${(wait / 1000).toFixed(1)}s (sisa ${q.tokRemaining} token, butuh ±${need})`);
+    await sleep(wait + 50);
+  }
+  q.tokRemaining -= need; // dipesan, supaya panggilan bersamaan ikut antre
+  return true;
 }
 
 function noteLimited(q, headers, body) {
@@ -236,38 +270,46 @@ async function* streamOpenAI(p, model, key, q, system, messages, signal) {
 
 // Jawaban dari provider pertama yang berhasil (urutan PROVIDERS). Pindah ke provider berikutnya
 // hanya kalau gagal sebelum ada teks; kalau sebagian jawaban sudah keluar, errornya diteruskan.
-// Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim (akun utama).
-// Akun+model yang sedang kena limit (tercatat di kuota) dilewati tanpa memanggil API.
+// Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim.
+// Per provider: putaran 1 langsung pindah akun kalau jatah token/menit akun kurang (tanpa menunggu);
+// putaran 2 baru antre di akun yang tadi sibuk. Akun yang sedang kena limit 429 dilewati tanpa memanggil API.
 async function* generate(agent, system, messages, signal) {
-  const tries = [];
-  for (const p of PROVIDERS) {
-    for (const a of accountsFor(p, agent.leader)) tries.push([p, agent.leader ? p.leader : p.team, a]);
-  }
-  if (agent.leader) {
-    for (const p of PROVIDERS) if (p.team !== p.leader) tries.push([p, p.team, { key: p.key, label: 'utama' }]);
-  }
+  const groups = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
+  if (agent.leader) groups.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
+  const need = estimateTokens(system, messages);
   daily.count += 1;
   let lastErr = httpError(429, 'semua akun & provider sedang kena limit');
-  for (const [p, model, acct] of tries) {
-    const q = quotaOf(p, model, acct.label);
-    if (q.blockedUntil > Date.now()) continue;
-    let sent = false;
-    try {
-      for await (const t of streamOpenAI(p, model, acct.key, q, system, messages, signal)) {
-        sent = true;
-        yield t;
+  for (const [p, model] of groups) {
+    const accts = accountsFor(p, agent.leader);
+    const busy = []; // akun yang dilewati karena jatah token/menit kurang
+    for (const canWait of [false, true]) {
+      for (const acct of canWait ? busy : accts) {
+        const q = quotaOf(p, model, acct.label);
+        if (q.blockedUntil > Date.now()) continue;
+        if (!(await reserveTokens(q, need, `${p.name} ${acct.label}`, canWait))) {
+          if (!canWait) busy.push(acct);
+          continue;
+        }
+        if (signal.aborted) throw httpError(499, 'dibatalkan');
+        let sent = false;
+        try {
+          for await (const t of streamOpenAI(p, model, acct.key, q, system, messages, signal)) {
+            sent = true;
+            yield t;
+          }
+          if (!sent) throw httpError(502, 'jawaban kosong');
+          q.used += 1;
+          q.blockedUntil = 0;
+          saveQuota();
+          console.log(`[chat] ${agent.id} via ${p.name} model=${model} akun=${acct.label}`);
+          return;
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastErr = err;
+          console.error(`[chat error] ${p.name} model=${model} akun=${acct.label}`, err?.status || '', String(err?.message || err).slice(0, 200));
+          if (sent) throw err; // sebagian jawaban sudah terkirim, jangan disambung akun/provider lain
+        }
       }
-      if (!sent) throw httpError(502, 'jawaban kosong');
-      q.used += 1;
-      q.blockedUntil = 0;
-      saveQuota();
-      console.log(`[chat] ${agent.id} via ${p.name} model=${model} akun=${acct.label}`);
-      return;
-    } catch (err) {
-      if (signal.aborted) throw err;
-      lastErr = err;
-      console.error(`[chat error] ${p.name} model=${model} akun=${acct.label}`, err?.status || '', String(err?.message || err).slice(0, 200));
-      if (sent) break;
     }
   }
   throw lastErr;
@@ -396,7 +438,10 @@ app.get('/api/quota', requireAccess, async (req, res) => {
   const rows = [];
   for (const p of PROVIDERS) {
     const free = p.name === 'openrouter' ? await openRouterFree(p) : null;
-    const lines = [['leader', p.leader, { label: 'utama' }]];
+    // leader: akun utama selalu; akun staf hanya kalau sudah pernah dipinjam leader hari ini
+    const lines = accountsFor(p, true, false)
+      .filter((a) => a.label === 'utama' || quotaOf(p, p.leader, a.label).used || quotaOf(p, p.leader, a.label).limit)
+      .map((a) => ['leader', p.leader, a]);
     if (p.team !== p.leader || p.staff.length) {
       for (const a of accountsFor(p, false, false)) lines.push(['tim', p.team, a]);
     }

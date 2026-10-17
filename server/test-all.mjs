@@ -86,5 +86,8 @@ for (const { agent, text, error, secs } of results) {
 }
 const failed = results.filter((r) => r.error || !r.text);
 console.log(`\n${results.length - failed.length}/${results.length} karyawan menjawab.  (* = leader)`);
-for (const e of log.match(/\[chat error\].*/g) || []) console.log('  log:', e.slice(0, 160));
+for (const e of log.match(/\[(chat error|antre)\].*/g) || []) console.log('  log:', e.slice(0, 160));
+const answered = {};
+for (const [, who] of log.matchAll(/\[chat\] \S+ via (\S+ model=\S+ akun=\S+(?: \d+)?)/g)) answered[who] = (answered[who] || 0) + 1;
+console.log('Dijawab oleh:', Object.entries(answered).map(([k, n]) => `${k} ×${n}`).join(' | ') || '-');
 process.exit(failed.length ? 1 : 0);

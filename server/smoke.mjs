@@ -40,7 +40,8 @@ assert.ok(a.text && !a.error, `normal gagal: ${a.error}\n${a.log}`);
 
 const [, prov, model] = a.log.match(/via (\S+) model=(\S+)/);
 const KEY_ENV = { gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
-const b = await ask({ [KEY_ENV[prov]]: 'rusak-untuk-tes' }, 3092); // rusak provider yang tadi menjawab
+// rusak provider yang tadi menjawab (termasuk akun staf Groq, karena leader boleh meminjamnya)
+const b = await ask({ [KEY_ENV[prov]]: 'rusak-untuk-tes', ...(prov === 'groq' && { GROQ_STAFF_KEYS: 'rusak-1,rusak-2' }) }, 3092);
 console.log('fallback:', b.log.match(/via \S+ model=\S+/)?.[0], '|', b.text.slice(0, 80).replace(/\s+/g, ' '));
 assert.match(b.log, new RegExp(`\\[chat error\\] ${prov}`), `${prov} seharusnya gagal`);
 assert.ok(b.text && !b.error && !new RegExp(`via ${prov}`).test(b.log), `fallback gagal: ${b.error}\n${b.log}`);
