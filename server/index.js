@@ -29,7 +29,7 @@ const ALL_PROVIDERS = [
   { name: 'openrouter', key: env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1',
     leader: env.OPENROUTER_MODEL_LEADER || 'google/gemma-4-31b-it:free', team: env.OPENROUTER_MODEL_TEAM || 'google/gemma-4-26b-a4b-it:free' },
 ];
-const ORDER = (env.LLM_ORDER || 'gemini,groq,openrouter').split(',').map((s) => s.trim());
+const ORDER = (env.LLM_ORDER || 'groq,gemini,openrouter').split(',').map((s) => s.trim());
 const PROVIDERS = ORDER.map((n) => ALL_PROVIDERS.find((p) => p.name === n && p.key)).filter(Boolean);
 
 const DEMO = !PROVIDERS.length;

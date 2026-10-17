@@ -16,7 +16,7 @@ Kantor isometrik 3D berisi 24 karyawan AI untuk digital agency. Klik karakter, l
 | Finance | Melati |
 | Manajemen | Bram (General Manager) |
 
-Leader pakai model yang lebih pintar, anggota tim pakai model yang lebih ringan. Provider AI: Gemini (utama), lalu Groq dan OpenRouter sebagai cadangan otomatis. Semua agent hanya membuat **draft**, tidak mengirim apa pun ke klien.
+Leader pakai model yang lebih pintar, anggota tim pakai model yang lebih ringan. Provider AI: Groq (utama, jatah gratis paling besar), lalu Gemini dan OpenRouter sebagai cadangan otomatis. Semua agent hanya membuat **draft**, tidak mengirim apa pun ke klien.
 
 **Cara kerja tim**
 
@@ -66,7 +66,7 @@ Salin `.env.example` menjadi `.env`, lalu isi sesuai kebutuhan.
 
 | Variabel | Default | Fungsi |
 |---|---|---|
-| `LLM_ORDER` | `gemini,groq,openrouter` | Urutan provider yang dicoba. |
+| `LLM_ORDER` | `groq,gemini,openrouter` | Urutan provider yang dicoba. Groq duluan karena jatah gratisnya paling besar (1.000 request/hari per model). |
 | `GEMINI_API_KEY` | (kosong) | API key Gemini. |
 | `GROQ_API_KEY` | (kosong) | API key Groq. |
 | `OPENROUTER_API_KEY` | (kosong) | API key OpenRouter. |
