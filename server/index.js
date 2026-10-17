@@ -19,18 +19,33 @@ const MAX_CHARS = 4000;
 // Provider AI. Yang tidak punya key dilewati. Dicoba sesuai LLM_ORDER; kalau satu gagal
 // sebelum sempat mengirim teks, otomatis pindah ke provider berikutnya.
 // Semua lewat endpoint yang kompatibel OpenAI (baseURL).
+// GROQ_STAFF_KEYS: key akun Groq lain (dipisah koma) untuk anggota tim; digilir, akun utama jadi cadangannya.
+const staffKeys = (list) => String(list || '').split(',').map((k) => k.trim()).filter(Boolean)
+  .map((key, i) => ({ key, label: `staf ${i + 1}` }));
 const ALL_PROVIDERS = [
   { name: 'gemini', key: env.GEMINI_API_KEY, baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
     leader: env.GEMINI_MODEL_LEADER || 'gemini-3.5-flash', team: env.GEMINI_MODEL_TEAM || 'gemini-3.5-flash-lite',
     extra: { reasoning_effort: 'low' } },
   { name: 'groq', key: env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1',
     leader: env.GROQ_MODEL_LEADER || 'openai/gpt-oss-120b', team: env.GROQ_MODEL_TEAM || 'openai/gpt-oss-20b',
-    extra: { reasoning_effort: 'low' } },
+    extra: { reasoning_effort: 'low' }, staff: staffKeys(env.GROQ_STAFF_KEYS) },
   { name: 'openrouter', key: env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1',
     leader: env.OPENROUTER_MODEL_LEADER || 'google/gemma-4-31b-it:free', team: env.OPENROUTER_MODEL_TEAM || 'google/gemma-4-26b-a4b-it:free' },
 ];
 const ORDER = (env.LLM_ORDER || 'groq,gemini,openrouter').split(',').map((s) => s.trim());
 const PROVIDERS = ORDER.map((n) => ALL_PROVIDERS.find((p) => p.name === n && p.key)).filter(Boolean);
+for (const p of PROVIDERS) p.staff ??= [];
+
+// Akun yang dicoba untuk satu panggilan, berurutan. Leader & GM: akun utama saja.
+// Anggota tim: akun staf digilir (mulai dari akun berikutnya tiap panggilan), lalu akun utama.
+let staffTurn = 0;
+function accountsFor(p, leader, rotate = true) {
+  const main = { key: p.key, label: 'utama' };
+  if (leader || !p.staff.length) return [main];
+  const n = p.staff.length;
+  const start = rotate ? staffTurn++ % n : 0;
+  return [...p.staff.map((_, i) => p.staff[(start + i) % n]), main];
+}
 
 const DEMO = !PROVIDERS.length;
 
@@ -131,9 +146,10 @@ try {
 } catch { /* belum ada file */ }
 const saveQuota = () => writeFile(QUOTA_FILE, JSON.stringify(quota), () => {});
 
-function quotaOf(p, model) {
+function quotaOf(p, model, label = 'utama') {
   if (quota.day !== quotaDay()) quota = { day: quotaDay(), models: {} };
-  return (quota.models[`${p.name}:${model}`] ??= { used: 0 });
+  const id = label === 'utama' ? `${p.name}:${model}` : `${p.name}:${model}:${label}`;
+  return (quota.models[id] ??= { used: 0 });
 }
 
 // "1m26.4s", "577ms", "956s", "2h3m" -> milidetik
@@ -143,16 +159,14 @@ function parseDuration(s) {
   return ms;
 }
 
-function noteHeaders(p, model, h) {
+function noteHeaders(q, h) {
   const limit = h.get('x-ratelimit-limit-requests');
   if (limit == null) return;
-  const q = quotaOf(p, model);
   q.limit = Number(limit);
   q.remaining = Number(h.get('x-ratelimit-remaining-requests'));
 }
 
-function noteLimited(p, model, headers, body) {
-  const q = quotaOf(p, model);
+function noteLimited(q, headers, body) {
   let wait = Number(headers.get('retry-after')) * 1000 || 60_000;
   try {
     const j = JSON.parse(body);
@@ -183,21 +197,22 @@ async function openRouterFree(p) {
 }
 
 // Streaming dari endpoint kompatibel OpenAI (Gemini, Groq, OpenRouter). Menghasilkan potongan teks.
-async function* streamOpenAI(p, model, system, messages, signal) {
+// q = catatan kuota akun+model ini (diisi dari header / error 429).
+async function* streamOpenAI(p, model, key, q, system, messages, signal) {
   const r = await fetch(`${p.baseURL}/chat/completions`, {
     method: 'POST',
     signal,
-    headers: { Authorization: `Bearer ${p.key}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, max_tokens: MAX_TOKENS, stream: true,
       messages: [{ role: 'system', content: system }, ...messages],
       ...p.extra,
     }),
   });
-  noteHeaders(p, model, r.headers);
+  noteHeaders(q, r.headers);
   if (!r.ok) {
     const body = await r.text();
-    if (r.status === 429) noteLimited(p, model, r.headers, body);
+    if (r.status === 429) noteLimited(q, r.headers, body);
     throw httpError(r.status, body);
   }
 
@@ -221,30 +236,37 @@ async function* streamOpenAI(p, model, system, messages, signal) {
 
 // Jawaban dari provider pertama yang berhasil (urutan PROVIDERS). Pindah ke provider berikutnya
 // hanya kalau gagal sebelum ada teks; kalau sebagian jawaban sudah keluar, errornya diteruskan.
-// Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim.
+// Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim (akun utama).
+// Akun+model yang sedang kena limit (tercatat di kuota) dilewati tanpa memanggil API.
 async function* generate(agent, system, messages, signal) {
-  const tries = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
-  if (agent.leader) tries.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
+  const tries = [];
+  for (const p of PROVIDERS) {
+    for (const a of accountsFor(p, agent.leader)) tries.push([p, agent.leader ? p.leader : p.team, a]);
+  }
+  if (agent.leader) {
+    for (const p of PROVIDERS) if (p.team !== p.leader) tries.push([p, p.team, { key: p.key, label: 'utama' }]);
+  }
   daily.count += 1;
-  let lastErr = null;
-  for (const [p, model] of tries) {
+  let lastErr = httpError(429, 'semua akun & provider sedang kena limit');
+  for (const [p, model, acct] of tries) {
+    const q = quotaOf(p, model, acct.label);
+    if (q.blockedUntil > Date.now()) continue;
     let sent = false;
     try {
-      for await (const t of streamOpenAI(p, model, system, messages, signal)) {
+      for await (const t of streamOpenAI(p, model, acct.key, q, system, messages, signal)) {
         sent = true;
         yield t;
       }
       if (!sent) throw httpError(502, 'jawaban kosong');
-      const q = quotaOf(p, model);
       q.used += 1;
       q.blockedUntil = 0;
       saveQuota();
-      console.log(`[chat] ${agent.id} via ${p.name} model=${model}`);
+      console.log(`[chat] ${agent.id} via ${p.name} model=${model} akun=${acct.label}`);
       return;
     } catch (err) {
       if (signal.aborted) throw err;
       lastErr = err;
-      console.error(`[chat error] ${p.name} model=${model}`, err?.status || '', String(err?.message || err).slice(0, 200));
+      console.error(`[chat error] ${p.name} model=${model} akun=${acct.label}`, err?.status || '', String(err?.message || err).slice(0, 200));
       if (sent) break;
     }
   }
@@ -374,13 +396,17 @@ app.get('/api/quota', requireAccess, async (req, res) => {
   const rows = [];
   for (const p of PROVIDERS) {
     const free = p.name === 'openrouter' ? await openRouterFree(p) : null;
-    for (const [role, model] of [['leader', p.leader], ['tim', p.team]]) {
-      if (role === 'tim' && model === p.leader) continue;
-      const q = quotaOf(p, model);
+    const lines = [['leader', p.leader, { label: 'utama' }]];
+    if (p.team !== p.leader || p.staff.length) {
+      for (const a of accountsFor(p, false, false)) lines.push(['tim', p.team, a]);
+    }
+    for (const [role, model, acct] of lines) {
+      const q = quotaOf(p, model, acct.label);
       const limit = free?.limit ?? q.limit ?? null;
       const remaining = free?.remaining ?? q.remaining ?? (limit == null ? null : Math.max(0, limit - q.used));
       rows.push({
         provider: p.name, model, role, used: free?.used ?? q.used, limit, remaining,
+        account: p.staff.length ? acct.label : null, // hanya ditampilkan kalau provider punya akun staf
         shared: Boolean(free), // jatah OpenRouter dibagi semua model gratis
         blockedFor: Math.max(0, (q.blockedUntil || 0) - now),
       });
@@ -455,6 +481,6 @@ if (existsSync(dist)) {
 app.listen(PORT, () => {
   console.log(`Kantor AI API jalan di http://localhost:${PORT}`);
   console.log(DEMO ? 'Mode: DEMO (tanpa API key AI)'
-    : `Mode: LIVE  urutan: ${PROVIDERS.map((p) => `${p.name}(${p.leader} / ${p.team})`).join(' > ')}`);
+    : `Mode: LIVE  urutan: ${PROVIDERS.map((p) => `${p.name}(${p.leader} / ${p.team}${p.staff.length ? `, ${p.staff.length} akun staf digilir` : ''})`).join(' > ')}`);
   console.log(ACCESS_CODE ? 'Kode akses: aktif' : 'Kode akses: TIDAK aktif (isi ACCESS_CODE sebelum dipublikasi)');
 });

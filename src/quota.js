@@ -24,9 +24,10 @@ function row(r) {
     level = pct > 50 ? 'ok' : pct > 20 ? 'low' : 'out';
     text = `sisa ${r.remaining}/${r.limit}`;
   }
-  const title = `${NAMES[r.provider]} ${r.model} (${r.role})${r.shared ? ' · jatah harian dibagi semua model gratis OpenRouter' : ''}${!r.limit && r.blockedFor <= 0 ? ' · limit diketahui setelah kena batas pertama kali' : ''}`;
+  const acct = r.account ? ` · ${r.account}` : '';
+  const title = `${NAMES[r.provider]} ${r.model} (${r.role}${r.account ? `, akun ${r.account}` : ''})${r.account === 'utama' && r.role === 'tim' ? ' · cadangan saat semua akun staf habis' : ''}${r.shared ? ' · jatah harian dibagi semua model gratis OpenRouter' : ''}${!r.limit && r.blockedFor <= 0 ? ' · limit diketahui setelah kena batas pertama kali' : ''}`;
   return `<li class="q-row" title="${esc(title)}">
-    <span class="q-model"><b>${esc(r.role)}</b> ${esc(shortModel(r.model))}</span>
+    <span class="q-model"><b>${esc(r.role)}</b> ${esc(shortModel(r.model))}${acct ? `<em>${esc(acct)}</em>` : ''}</span>
     <span class="q-bar ${level}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${esc(title)}"><i style="width:${level === 'out' && r.blockedFor > 0 ? 0 : pct}%"></i></span>
     <span class="q-text">${esc(text)}</span>
   </li>`;

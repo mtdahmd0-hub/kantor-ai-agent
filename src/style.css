@@ -101,6 +101,7 @@ body.chatting #hint { opacity: 0; }
 .q-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'model text' 'bar bar'; gap: 2px 8px; }
 .q-model { grid-area: model; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .q-model b { color: var(--ink); font-weight: 600; }
+.q-model em { font-style: normal; color: var(--ink); }
 .q-text { grid-area: text; text-align: right; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .q-row:has(.q-bar.out) .q-text { color: #c0362c; }
 .q-bar { grid-area: bar; height: 6px; border-radius: 99px; background: rgba(29, 36, 51, 0.08); overflow: hidden; }
