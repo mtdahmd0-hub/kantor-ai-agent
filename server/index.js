@@ -11,6 +11,8 @@ const env = process.env;
 const PORT = Number(env.PORT || 3001);
 const ACCESS_CODE = env.ACCESS_CODE || '';
 const MAX_TOKENS = Number(env.MAX_TOKENS || 1500);
+// Hasil akhir leader/GM (gabungan tim + paket "Prompt siap pakai") butuh ruang lebih panjang.
+const FINAL_MAX_TOKENS = Number(env.FINAL_MAX_TOKENS || 3000);
 const RATE_PER_MINUTE = Number(env.RATE_PER_MINUTE || 15);
 const DAILY_MAX_REQUESTS = Number(env.DAILY_MAX_REQUESTS || 300);
 const MAX_HISTORY = 20;
@@ -180,8 +182,8 @@ function noteHeaders(q, h) {
 // ponytail: perkiraan token kasar (huruf/4 + MAX_TOKENS) dan "pulih" dianggap penuh saat reset-tokens lewat;
 // kalau masih sering kena 429, naikkan pembagi atau kecilkan MAX_TOKENS.
 const TOKEN_WAIT_MS = Number(env.TOKEN_WAIT_MS || 20_000);
-const estimateTokens = (system, messages) =>
-  Math.ceil((system.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4) + MAX_TOKENS;
+const estimateTokens = (system, messages, maxTokens) =>
+  Math.ceil((system.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4) + maxTokens;
 
 async function reserveTokens(q, need, label, canWait) {
   if (q.tokRemaining == null || need > q.tokLimit) return true; // belum tahu jatahnya / memang tidak muat
@@ -233,13 +235,13 @@ async function openRouterFree(p) {
 
 // Streaming dari endpoint kompatibel OpenAI (Gemini, Groq, OpenRouter). Menghasilkan potongan teks.
 // q = catatan kuota akun+model ini (diisi dari header / error 429).
-async function* streamOpenAI(p, model, key, q, system, messages, signal) {
+async function* streamOpenAI(p, model, key, q, system, messages, signal, maxTokens) {
   const r = await fetch(`${p.baseURL}/chat/completions`, {
     method: 'POST',
     signal,
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model, max_tokens: MAX_TOKENS, stream: true,
+      model, max_tokens: maxTokens, stream: true,
       messages: [{ role: 'system', content: system }, ...messages],
       ...p.extra,
     }),
@@ -274,10 +276,10 @@ async function* streamOpenAI(p, model, key, q, system, messages, signal) {
 // Leader yang semua model leadernya habis kuota masih dicoba lagi dengan model tim.
 // Per provider: putaran 1 langsung pindah akun kalau jatah token/menit akun kurang (tanpa menunggu);
 // putaran 2 baru antre di akun yang tadi sibuk. Akun yang sedang kena limit 429 dilewati tanpa memanggil API.
-async function* generate(agent, system, messages, signal) {
+async function* generate(agent, system, messages, signal, maxTokens = MAX_TOKENS) {
   const groups = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
   if (agent.leader) groups.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
-  const need = estimateTokens(system, messages);
+  const need = estimateTokens(system, messages, maxTokens);
   daily.count += 1;
   let lastErr = httpError(429, 'semua akun & provider sedang kena limit');
   for (const [p, model] of groups) {
@@ -294,7 +296,7 @@ async function* generate(agent, system, messages, signal) {
         if (signal.aborted) throw httpError(499, 'dibatalkan');
         let sent = false;
         try {
-          for await (const t of streamOpenAI(p, model, acct.key, q, system, messages, signal)) {
+          for await (const t of streamOpenAI(p, model, acct.key, q, system, messages, signal, maxTokens)) {
             sent = true;
             yield t;
           }
@@ -387,7 +389,7 @@ async function* teamWork(leader, messages, signal, onStatus, verbose = true) {
   const done = results.filter((r) => r.text).map((r) => `## ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n');
   if (verbose) yield `### 📝 Hasil akhir dari ${firstName(leader)}\n`;
   yield* generate(leader, `${leaderSystem}\n\n${TEAM_FINAL}`,
-    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${done}` }], signal);
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
 }
 
 // Mode manager: GM membagi brief ke penanggung jawab divisi -> tiap leader bekerja bersama timnya
@@ -423,7 +425,7 @@ async function* managerWork(manager, messages, signal, onStatus) {
   const done = results.filter((r) => r.text).map((r) => `## ${divName(r.agent)} (${r.agent.name})\n${r.text}`).join('\n\n');
   yield `### 📝 Hasil akhir dari ${firstName(manager)}\n`;
   yield* generate(manager, `${managerSystem}\n\n${MANAGER_FINAL}`,
-    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja semua divisi:\n\n${done}` }], signal);
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja semua divisi:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
 }
 
 // ---------- API ----------

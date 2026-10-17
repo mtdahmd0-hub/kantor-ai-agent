@@ -33,9 +33,11 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     if (force || near) m.scrollTop = m.scrollHeight;
   };
 
-  function bubble(role, html, { text } = {}) {
+  // raw = teks markdown asli jawaban (untuk tombol Unduh .md)
+  function bubble(role, html, { text, raw } = {}) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}`;
+    wrap.raw = raw;
     const b = document.createElement('div');
     b.className = 'bubble';
     if (role === 'user') b.textContent = text;
@@ -44,10 +46,26 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     if (role === 'assistant') {
       const tools = document.createElement('div');
       tools.className = 'tools';
-      tools.innerHTML = '<button type="button" data-copy>Salin</button>';
+      tools.innerHTML = '<button type="button" data-copy>Salin</button><button type="button" data-download>Unduh .md</button>';
       wrap.appendChild(tools);
     }
     return wrap;
+  }
+
+  // Simpan satu jawaban sebagai file .md (siap diunggah/ditempel ke AI lain), lengkap dengan konteksnya.
+  function download(msgEl) {
+    const agent = agentById(currentId);
+    const ask = msgEl.previousElementSibling?.classList.contains('user') ? msgEl.previousElementSibling.innerText.trim() : '';
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    const doc = `# ${agent.name} — ${agent.role}\n\n_Kantor AI · ${document.title.split('·').pop().trim()} · ${now.toLocaleString('id-ID')}_\n\n`
+      + (ask ? `**Permintaan:** ${ask}\n\n---\n\n` : '')
+      + (msgEl.raw || msgEl.querySelector('.bubble').innerText) + '\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([doc], { type: 'text/markdown;charset=utf-8' }));
+    a.download = `kantor-ai-${agent.id}-${stamp}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   const typingHtml = '<span class="typing" aria-label="Sedang mengetik"><i></i><i></i><i></i></span>';
@@ -115,7 +133,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     const l = live.get(agentId);
     if (!history.length && !l) renderEmpty(agent);
     for (const m of history) {
-      els.messages.appendChild(m.role === 'user' ? bubble('user', '', { text: m.content }) : bubble('assistant', renderMarkdown(m.content)));
+      els.messages.appendChild(m.role === 'user' ? bubble('user', '', { text: m.content }) : bubble('assistant', renderMarkdown(m.content), { raw: m.content }));
     }
     if (l) {
       l.el = bubble('assistant', typingHtml);
@@ -176,7 +194,10 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
       });
       setHistory(id, [...sent, { role: 'assistant', content: full }]);
       live.delete(id);
-      if (l.el && currentId === id) l.el.querySelector('.bubble').innerHTML = renderMarkdown(full);
+      if (l.el && currentId === id) {
+        l.el.querySelector('.bubble').innerHTML = renderMarkdown(full);
+        l.el.raw = full;
+      }
       onStatus(id, 'done');
     } catch (err) {
       live.delete(id);
@@ -239,6 +260,8 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
   els.messages.addEventListener('click', (e) => {
     const copyCode = e.target.closest('.copy');
     const copyMsg = e.target.closest('[data-copy]');
+    const dl = e.target.closest('[data-download]');
+    if (dl) return download(dl.closest('.msg'));
     const flash = (btn, t) => {
       const old = btn.textContent;
       btn.textContent = t;

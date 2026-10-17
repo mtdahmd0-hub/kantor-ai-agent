@@ -19,7 +19,12 @@ export function renderMarkdown(src) {
   const out = [];
   let i = 0;
 
-  const isBlockStart = (l) => /^```/.test(l) || /^\s*([-*•]|\d+[.)])\s+/.test(l) || /^#{1,4}\s+/.test(l);
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  const isSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l);
+  // sel tabel: <br> dari AI dijadikan baris baru (satu-satunya tag yang diizinkan)
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|')
+    .map((c) => inline(c.trim()).replace(/&lt;br\s*\/?&gt;/gi, '<br>'));
+  const isBlockStart = (l) => /^```/.test(l) || /^\s*([-*•]|\d+[.)])\s+/.test(l) || /^#{1,4}\s+/.test(l) || isRow(l);
 
   while (i < lines.length) {
     const line = lines[i];
@@ -33,6 +38,16 @@ export function renderMarkdown(src) {
       }
       i += 1; // lewati penutup (atau akhir stream)
       out.push(`<pre><button type="button" class="copy">Salin</button><code>${esc(buf.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    if (isRow(line) && isSep(lines[i + 1] || '')) {
+      const head = cells(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && isRow(lines[i])) rows.push(cells(lines[i++]));
+      const tr = (r, tag) => `<tr>${r.map((c) => `<${tag}>${c}</${tag}>`).join('')}</tr>`;
+      out.push(`<div class="tbl"><table><thead>${tr(head, 'th')}</thead><tbody>${rows.map((r) => tr(r, 'td')).join('')}</tbody></table></div>`);
       continue;
     }
 

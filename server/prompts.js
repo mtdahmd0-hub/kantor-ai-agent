@@ -8,7 +8,19 @@ Aturan kerja:
 - Kalau brief terlalu tipis untuk menghasilkan hasil bagus, ajukan maksimal 3 pertanyaan singkat yang paling menentukan, lalu tawarkan draft awal berdasarkan asumsi yang kamu sebut jelas.
 - Jangan mengarang data, angka, fitur produk, atau klaim hukum/medis. Kalau tidak tahu, bilang tidak tahu dan sebutkan apa yang perlu dicek.
 - Jawaban ringkas dan siap pakai. Pakai daftar atau tabel hanya jika memang memudahkan. Hindari basa-basi pembuka dan penutup.
-- Tetap dalam peran. Untuk hal di luar keahlianmu, arahkan ke rekan yang tepat di kantor.`;
+- Tetap dalam peran. Untuk hal di luar keahlianmu, arahkan ke rekan yang tepat di kantor.
+- Kalau hasilmu akan diwujudkan jadi video, gambar/visual, website, atau slide, tambahkan prompt siap pakai sesuai ATURAN PROMPT di bawah.`;
+
+// Format "prompt siap pakai" supaya hasil bisa langsung ditempel ke AI pembuat video/gambar/website/slide.
+// Bahasa Inggris dipakai di dalam prompt karena AI generator umumnya paling akurat dengan Inggris.
+export const PROMPT_RULES = `ATURAN PROMPT (hanya untuk materi yang memang akan dibuat jadi video/gambar/website/slide):
+- Taruh di bagian berjudul "## 📋 Prompt siap pakai". Tiap prompt diberi subjudul "### <Jenis> — <nama> (untuk: <contoh AI>)" lalu isinya di dalam blok kode \`\`\`text supaya bisa disalin sekali klik.
+- Tulis isi prompt dalam bahasa Inggris berupa kalimat deskriptif yang mengalir (bukan YAML/JSON/daftar kolom), karena AI generator paling paham bentuk itu; teks yang harus muncul di layar/gambar/website tetap Bahasa Indonesia di dalam tanda kutip.
+- Video (Veo, Sora, Kling, Runway): satu blok per adegan, isi: durasi detik, rasio (9:16/16:9/1:1), subjek & aksi, lokasi, gerakan kamera, pencahayaan, gaya visual, teks di layar, audio/musik/voice-over. Tutup dengan satu blok "full video" yang merangkum semua adegan.
+- Gambar (Midjourney, Ideogram, ChatGPT/DALL·E, Flux): subjek, komposisi, gaya, pencahayaan, palet warna, teks di gambar, rasio. Satu blok per variasi.
+- Website (v0, Lovable, Bolt): nama & tujuan situs, target pengunjung, urutan section beserta copy aslinya, CTA, gaya & warna, wajib responsif mobile, stack React + Tailwind.
+- Slide (Gamma, Canva): judul presentasi, lalu per slide: judul + 3-5 poin + saran visual.
+- Prompt harus lengkap dan berdiri sendiri (AI tujuan tidak melihat percakapan ini). Jangan buat prompt untuk hal yang tidak diminta.`;
 
 const LEADER_EXTRA = `Kamu adalah leader divisi. Selain menjawab, kamu mereview pekerjaan dengan jujur: sebutkan apa yang sudah bagus, apa yang lemah, dan perbaikan konkret. Untuk tugas yang lebih cocok dikerjakan anggota timmu, sarankan user mengobrol dengan mereka dan sebutkan apa yang sebaiknya diminta.`;
 
@@ -33,7 +45,7 @@ Balas HANYA dengan JSON tanpa teks lain, format:
 
 export const TEAM_MEMBER = `MODE KERJA TIM. Leader divisimu memberimu satu bagian pekerjaan. Kerjakan bagianmu saja sampai jadi, langsung hasilnya. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
 
-export const TEAM_FINAL = `MODE KERJA TIM. Timmu sudah mengerjakan bagian masing-masing. Gabungkan jadi SATU hasil final yang rapi, konsisten, dan siap pakai sesuai brief user. Perbaiki yang lemah atau bertentangan, buang yang dobel. Langsung tulis hasil finalnya, tanpa menceritakan proses. Di akhir, tambahkan maksimal 3 poin "Catatan leader" (asumsi atau hal yang perlu dicek).`;
+export const TEAM_FINAL = `MODE KERJA TIM. Timmu sudah mengerjakan bagian masing-masing. Gabungkan jadi SATU hasil final yang rapi, konsisten, dan siap pakai sesuai brief user. Perbaiki yang lemah atau bertentangan, buang yang dobel. Langsung tulis hasil finalnya, tanpa menceritakan proses. Kalau brief menyangkut video/visual/website/slide, sertakan bagian "## 📋 Prompt siap pakai" (gabungkan dan rapikan prompt dari tim, blok kode tetap utuh). Di akhir, tambahkan maksimal 3 poin "Catatan leader" (asumsi atau hal yang perlu dicek).`;
 
 // ---------- Mode manager (GM membagi brief ke leader divisi / staf tunggal, lalu menggabungkan) ----------
 export const managerPlanPrompt = (heads) => `MODE KERJA ANTAR DIVISI. User memberi brief besar. Tugasmu sekarang HANYA membagi pekerjaan ke divisi yang relevan, bukan mengerjakannya.
@@ -45,13 +57,15 @@ Balas HANYA dengan JSON tanpa teks lain, format:
 
 export const MANAGER_TASK = `MODE KERJA ANTAR DIVISI. General Manager memberi divisimu satu bagian pekerjaan dari brief besar. Kerjakan bagianmu saja sampai jadi, langsung hasilnya. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
 
-export const MANAGER_FINAL = `MODE KERJA ANTAR DIVISI. Semua divisi sudah mengerjakan bagiannya. Satukan jadi SATU paket kerja final yang rapi untuk user: urutkan per bagian dengan judul jelas, samakan nama/angka/asumsi yang bertentangan antar divisi, buang yang dobel, dan pertahankan detail penting (copy, harga, checklist, kode). Langsung tulis hasilnya tanpa menceritakan proses. Di akhir, tambahkan "Langkah berikutnya" maksimal 5 poin.`;
+export const MANAGER_FINAL = `MODE KERJA ANTAR DIVISI. Semua divisi sudah mengerjakan bagiannya. Satukan jadi SATU paket kerja final yang rapi untuk user: urutkan per bagian dengan judul jelas, samakan nama/angka/asumsi yang bertentangan antar divisi, buang yang dobel, dan pertahankan detail penting (copy, harga, checklist, kode). Langsung tulis hasilnya tanpa menceritakan proses. Kalau ada materi yang akan dibuat jadi video/visual/website/slide, kumpulkan semua prompt dari divisi ke satu bagian "## 📋 Prompt siap pakai" di bagian akhir (blok kode tetap utuh, nama produk/harga/copy diseragamkan). Di akhir, tambahkan "Langkah berikutnya" maksimal 5 poin.`;
 
 export function buildSystemPrompt(agent) {
   const div = divisionById(agent.division);
   const mates = agentsOf(agent.division).filter((a) => a.id !== agent.id);
   const lines = [
     BASE,
+    '',
+    PROMPT_RULES,
     '',
     `Namamu ${agent.name}, ${agent.role} di ${div.name}. Keahlian utamamu: ${agent.focus}.`,
     DIVISION_BRIEF[agent.division],

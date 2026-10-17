@@ -8,6 +8,12 @@
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { renderMarkdown } from '../src/md.js';
+
+// 0) renderer chat: tabel jadi <table>, <br> di sel diizinkan, HTML lain tetap di-escape (tanpa panggil AI)
+const md = renderMarkdown('| Paket | Harga |\n|---|---:|\n| **Basic** | Rp5jt<br>3 halaman |\n\n<script>x</script>');
+assert.match(md, /<th>Paket<\/th>.*<td><strong>Basic<\/strong><\/td><td>Rp5jt<br>3 halaman<\/td>/s, 'tabel tidak ter-render');
+assert.ok(!md.includes('<script>') && !md.includes('|---'), 'escape / baris pemisah tabel bocor');
 
 async function ask(extraEnv, port, agents = ['rina']) {
   const srv = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, ...extraEnv, PORT: String(port), ACCESS_CODE: '' } });
