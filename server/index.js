@@ -11,7 +11,8 @@ const env = process.env;
 const PORT = Number(env.PORT || 3001);
 const ACCESS_CODE = env.ACCESS_CODE || '';
 const MAX_TOKENS = Number(env.MAX_TOKENS || 1500);
-// Hasil akhir leader/GM (gabungan tim + paket "Prompt siap pakai") butuh ruang lebih panjang.
+// Jawaban yang dibaca langsung user (chat langsung & hasil akhir leader/GM, termasuk paket "Prompt siap pakai")
+// butuh ruang lebih panjang; kerja internal anggota tim tetap MAX_TOKENS supaya hemat kuota.
 const FINAL_MAX_TOKENS = Number(env.FINAL_MAX_TOKENS || 3000);
 const RATE_PER_MINUTE = Number(env.RATE_PER_MINUTE || 15);
 const DAILY_MAX_REQUESTS = Number(env.DAILY_MAX_REQUESTS || 300);
@@ -526,7 +527,7 @@ app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
           : agent.leader && agentsOf(agent.division).length > 1 ? teamWork : null;
       const gen = multi
         ? multi(agent, messages, ac.signal, (who, state) => !closed && send({ who, state }))
-        : generate(agent, buildSystemPrompt(agent), messages, ac.signal);
+        : generate(agent, buildSystemPrompt(agent), messages, ac.signal, FINAL_MAX_TOKENS); // dibaca langsung user
       for await (const t of gen) if (!closed) send({ t });
     }
     if (!closed) send({ done: true });

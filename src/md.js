@@ -33,6 +33,10 @@ export function renderMarkdown(src) {
       const buf = [];
       i += 1;
       while (i < lines.length && !/^```/.test(lines[i])) {
+        if (/\S```\s*$/.test(lines[i])) { // AI kadang menutup blok di ujung baris teks: "...selesai.```"
+          buf.push(lines[i].replace(/```\s*$/, ''));
+          break; // "i += 1" di bawah melewati baris penutup ini
+        }
         buf.push(lines[i]);
         i += 1;
       }
