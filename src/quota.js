@@ -46,7 +46,10 @@ export function initQuota() {
     list.hidden = !v;
     try { localStorage.setItem(KEY_OPEN, v ? '1' : '0'); } catch { /* abaikan */ }
   };
-  toggle.addEventListener('click', () => setOpen(!open));
+  toggle.addEventListener('click', () => {
+    setOpen(!open);
+    if (open) refresh(); // baru dibuka: tampilkan angka terbaru
+  });
   setOpen(open);
 
   async function refresh() {
@@ -74,7 +77,11 @@ export function initQuota() {
     }
   }
 
+  // Hemat invocation (Vercel Hobby: 1 juta/bulan): sekali saat dibuka, lalu tiap 60 detik
+  // hanya kalau tab terlihat DAN kartu terbuka. Kartu dilipat / tab disembunyikan = berhenti total.
+  const active = () => open && !document.hidden;
   refresh();
-  setInterval(() => { if (!document.hidden) refresh(); }, 20_000);
-  return { refresh };
+  setInterval(() => { if (active()) refresh(); }, 60_000);
+  document.addEventListener('visibilitychange', () => { if (active()) refresh(); });
+  return { refresh: () => { if (active()) refresh(); } };
 }

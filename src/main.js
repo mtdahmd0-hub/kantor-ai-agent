@@ -77,7 +77,7 @@ function setStatus(id, status) {
   c.status = status;
   if (status !== 'working') { // ada yang selesai: perbarui bar kuota (digabung kalau banyak sekaligus)
     clearTimeout(quotaTimer);
-    quotaTimer = setTimeout(quota.refresh, 800);
+    quotaTimer = setTimeout(quota.refresh, 1500);
   }
   if (status === 'done') {
     doneTimers.set(id, setTimeout(() => { if (c.status === 'done') c.status = 'idle'; }, 5000));

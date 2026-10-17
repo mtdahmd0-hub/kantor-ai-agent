@@ -146,7 +146,8 @@ try {
   const saved = JSON.parse(readFileSync(QUOTA_FILE, 'utf8'));
   if (saved.day === quota.day) quota = saved;
 } catch { /* belum ada file */ }
-const saveQuota = () => writeFile(QUOTA_FILE, JSON.stringify(quota), () => {});
+// Di Vercel file sistem read-only, jadi catatan kuota cukup di memori instance.
+const saveQuota = () => { if (!process.env.VERCEL) writeFile(QUOTA_FILE, JSON.stringify(quota), () => {}); };
 
 function quotaOf(p, model, label = 'utama') {
   if (quota.day !== quotaDay()) quota = { day: quotaDay(), models: {} };
