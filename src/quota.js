@@ -15,7 +15,7 @@ function waitText(ms) {
 function row(r) {
   let pct = 0;
   let level = 'unknown';
-  let text = r.used ? `${r.used} dipakai` : 'belum dipakai';
+  let text = r.used ? `${r.used} dipakai` : 'belum ada data';
   if (r.blockedFor > 0) {
     level = 'out';
     text = `limit · pulih ±${waitText(r.blockedFor)}`;
@@ -25,7 +25,9 @@ function row(r) {
     text = `sisa ${r.remaining}/${r.limit}`;
   }
   const acct = r.account ? ` · ${r.account}` : '';
-  const title = `${NAMES[r.provider]} ${r.model} (${r.role}${r.account ? `, akun ${r.account}` : ''})${r.account === 'utama' && r.role === 'tim' ? ' · cadangan saat semua akun staf habis' : ''}${r.shared ? ' · jatah harian dibagi semua model gratis OpenRouter' : ''}${!r.limit && r.blockedFor <= 0 ? ' · limit diketahui setelah kena batas pertama kali' : ''}`;
+  const title = `${NAMES[r.provider]} ${r.model} (${r.role}${r.account ? `, akun ${r.account}` : ''})${r.account === 'utama' && r.role === 'tim' ? ' · cadangan saat semua akun staf habis' : ''}${r.shared ? ' · jatah harian dibagi semua model gratis OpenRouter' : ''}${!r.limit && r.blockedFor <= 0 ? (r.provider === 'gemini'
+    ? ' · Google tidak memberi info sisa kuota; yang terlihat hanya pemakaian lewat server ini, limitnya ketahuan saat pertama kena batas'
+    : ' · server belum dapat angka dari provider (server baru menyala); muncul setelah dipakai') : ''}`;
   return `<li class="q-row" title="${esc(title)}">
     <span class="q-model"><b>${esc(r.role)}</b> ${esc(shortModel(r.model))}${acct ? `<em>${esc(acct)}</em>` : ''}</span>
     <span class="q-bar ${level}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${esc(title)}"><i style="width:${level === 'out' && r.blockedFor > 0 ? 0 : pct}%"></i></span>

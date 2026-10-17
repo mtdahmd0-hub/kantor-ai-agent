@@ -434,10 +434,34 @@ app.get('/api/config', (req, res) => {
 app.get('/api/verify', requireAccess, (req, res) => res.json({ ok: true }));
 
 // Sisa kuota per model, urut sesuai prioritas provider. limit/remaining null = belum diketahui.
+// Groq tidak punya endpoint "sisa kuota"; angkanya hanya ada di header respons. Kalau server ini belum
+// punya angkanya (baru dinyalakan / instance Vercel baru), kirim request 1 token, sekali per akun+model.
+// Gemini sengaja tidak dicek begini: jatah gratisnya cuma 20/hari.
+async function probeQuota(p, model, acct) {
+  const q = quotaOf(p, model, acct.label);
+  if (q.limit != null || q.probed) return;
+  q.probed = true;
+  try {
+    const r = await fetch(`${p.baseURL}/chat/completions`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5000),
+      headers: { Authorization: `Bearer ${acct.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ok' }] }),
+    });
+    noteHeaders(q, r.headers);
+    const body = await r.text();
+    if (r.status === 429) noteLimited(q, r.headers, body);
+  } catch { /* tidak apa-apa, baris tetap "belum ada data" */ }
+}
+
 app.get('/api/quota', requireAccess, async (req, res) => {
   const now = Date.now();
   const rows = [];
   for (const p of PROVIDERS) {
+    if (p.name === 'groq') {
+      await Promise.all([[p.leader, { key: p.key, label: 'utama' }], ...accountsFor(p, false, false).map((a) => [p.team, a])]
+        .map(([model, acct]) => probeQuota(p, model, acct)));
+    }
     const free = p.name === 'openrouter' ? await openRouterFree(p) : null;
     // leader: akun utama selalu; akun staf hanya kalau sudah pernah dipinjam leader hari ini
     const lines = accountsFor(p, true, false)
