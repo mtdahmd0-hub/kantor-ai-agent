@@ -71,6 +71,8 @@ Salin `.env.example` menjadi `.env`, lalu isi sesuai kebutuhan.
 | `GROQ_API_KEY` | (kosong) | API key Groq. |
 | `GROQ_STAFF_KEYS` | (kosong) | Opsional. Key akun Groq lain (dipisah koma). Staf digilir di akun-akun ini, leader & GM pakai `GROQ_API_KEY` dulu. Kalau jatah token/menit satu akun kurang, server langsung pindah ke akun Groq lain; antre hanya kalau semua akun sibuk. |
 | `TOKEN_WAIT_MS` | `20000` | Lama maksimal antre menunggu jatah token/menit Groq pulih sebelum pindah ke provider lain. |
+| `FINAL_MAX_TOKENS` | `3000` | Panjang maksimal jawaban yang dibaca langsung (chat langsung & hasil akhir leader/GM). `MAX_TOKENS` hanya untuk kerja internal anggota tim. |
+| `CALL_TIMEOUT_MS` | `120000` | Batas waktu satu panggilan AI; kalau provider menggantung, pindah ke provider berikutnya (fungsi Vercel maks 300 detik). |
 | `OPENROUTER_API_KEY` | (kosong) | API key OpenRouter. |
 | `ACCESS_CODE` | (kosong) | Kode yang harus dimasukkan pengunjung. **Wajib diisi kalau situs publik.** |
 | `PORT` | `3001` | Port server backend. |

@@ -43,6 +43,11 @@ export async function fetchConfig() {
   }
 }
 
+// Ringkas riwayat sebelum dikirim: server hanya memakai 20 pesan terakhir dan memotong jawaban panjang,
+// jadi tidak perlu mengirim lebih (riwayat berisi hasil Bram bisa ratusan KB).
+export const trimForSend = (messages) =>
+  messages.slice(-20).map((m) => (m.content.length > 12_000 ? { ...m, content: m.content.slice(0, 12_000) } : m));
+
 // Mengirim riwayat + pesan baru. Memanggil onText(potongan) saat streaming.
 // team = mode kerja tim (khusus leader); onWho(agentId, status) dipanggil saat anggota mulai/selesai.
 // Melempar Error dengan .code === 401 bila kode akses salah.
@@ -52,7 +57,7 @@ export async function streamChat(agentId, messages, { onText, onWho, signal, tea
     res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-access-code': getCode() },
-      body: JSON.stringify({ agentId, messages, team }),
+      body: JSON.stringify({ agentId, messages: trimForSend(messages), team }),
       signal,
     });
   } catch (e) {

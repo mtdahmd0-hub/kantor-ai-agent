@@ -56,7 +56,7 @@ const DEMO = !PROVIDERS.length;
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '1mb' })); // riwayat berisi hasil tim/Bram yang panjang (browser sudah meringkasnya)
 
 // ---------- Pembatas: akses, rate limit per IP, batas harian ----------
 function safeEqual(a, b) {
@@ -100,15 +100,34 @@ function dailyCap(req, res, next) {
 }
 
 // ---------- Util ----------
+// Batas panjang per pesan: pesan user MAX_CHARS; jawaban AI terakhir dibiarkan panjang karena biasanya
+// itu yang direvisi ("perbaiki bagian iklannya"); jawaban AI lama cukup ringkasannya.
+const MAX_LAST_ANSWER = 12_000;
+const MAX_OLD_ANSWER = 3_000;
+// Total riwayat ±24.000 huruf (±6.000 token) supaya chat & revisi biasa masih muat di jatah Groq
+// (8.000 token/menit per akun, dihitung dari input). Pesan terlama dibuang lebih dulu.
+const HISTORY_BUDGET = 24_000;
+const clip = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…[dipotong]`);
+
 function cleanMessages(raw) {
   if (!Array.isArray(raw)) return [];
   const out = raw
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-    .map((m) => ({ role: m.role, content: m.content.trim().slice(0, MAX_CHARS) }))
+    .map((m) => ({ role: m.role, content: m.content.trim() }))
     .filter((m) => m.content)
     .slice(-MAX_HISTORY);
   while (out.length && out[0].role !== 'user') out.shift();
-  return out;
+  const lastAnswer = out.findLastIndex((m) => m.role === 'assistant');
+  const clipped = out.map((m, i) => ({
+    role: m.role,
+    content: clip(m.content, m.role === 'user' ? MAX_CHARS : i === lastAnswer ? MAX_LAST_ANSWER : MAX_OLD_ANSWER),
+  }));
+  const size = () => clipped.reduce((n, m) => n + m.content.length, 0);
+  while (clipped.length > 2 && size() > HISTORY_BUDGET) {
+    clipped.splice(0, 2); // buang sepasang tanya-jawab terlama (pesan terakhir user & jawaban terakhir tetap)
+    while (clipped.length && clipped[0].role !== 'user') clipped.shift();
+  }
+  return clipped;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -183,11 +202,16 @@ function noteHeaders(q, h) {
 // ponytail: perkiraan token kasar (huruf/4 + MAX_TOKENS) dan "pulih" dianggap penuh saat reset-tokens lewat;
 // kalau masih sering kena 429, naikkan pembagi atau kecilkan MAX_TOKENS.
 const TOKEN_WAIT_MS = Number(env.TOKEN_WAIT_MS || 20_000);
-const estimateTokens = (system, messages, maxTokens) =>
-  Math.ceil((system.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4) + maxTokens;
+// Perkiraan token input (huruf/4, cocok dengan hitungan Groq ±10%). Groq menolak request kalau INPUT-nya
+// saja melebihi jatah token/menit (413), sedangkan jawaban baru dihitung setelah keluar.
+const inputTokens = (system, messages) =>
+  Math.ceil((system.length + messages.reduce((n, m) => n + m.content.length, 0)) / 4);
+// yang dipesan dari jatah per menit: input + perkiraan panjang jawaban (jarang sampai batas maksimal)
+const estimateTokens = (input, maxTokens) => input + Math.min(maxTokens, 1500);
 
 async function reserveTokens(q, need, label, canWait) {
-  if (q.tokRemaining == null || need > q.tokLimit) return true; // belum tahu jatahnya / memang tidak muat
+  if (q.tokRemaining == null) return true; // belum tahu jatahnya
+  need = Math.min(need, q.tokLimit); // input sudah dicek muat di generate(); jawaban panjang tetap boleh
   for (;;) {
     if (Date.now() >= q.tokResetAt) q.tokRemaining = Math.max(q.tokRemaining, q.tokLimit);
     if (q.tokRemaining >= need) break;
@@ -236,10 +260,14 @@ async function openRouterFree(p) {
 
 // Streaming dari endpoint kompatibel OpenAI (Gemini, Groq, OpenRouter). Menghasilkan potongan teks.
 // q = catatan kuota akun+model ini (diisi dari header / error 429).
+// Batas waktu per panggilan: provider yang menggantung dianggap gagal (pindah ke provider berikutnya),
+// supaya satu alur tim/Bram tidak menghabiskan batas 300 detik fungsi Vercel.
+const CALL_TIMEOUT_MS = Number(env.CALL_TIMEOUT_MS || 120_000);
+
 async function* streamOpenAI(p, model, key, q, system, messages, signal, maxTokens) {
   const r = await fetch(`${p.baseURL}/chat/completions`, {
     method: 'POST',
-    signal,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]),
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, max_tokens: maxTokens, stream: true,
@@ -280,16 +308,21 @@ async function* streamOpenAI(p, model, key, q, system, messages, signal, maxToke
 async function* generate(agent, system, messages, signal, maxTokens = MAX_TOKENS) {
   const groups = PROVIDERS.map((p) => [p, agent.leader ? p.leader : p.team]);
   if (agent.leader) groups.push(...PROVIDERS.filter((p) => p.team !== p.leader).map((p) => [p, p.team]));
-  const need = estimateTokens(system, messages, maxTokens);
+  const input = inputTokens(system, messages);
+  const need = estimateTokens(input, maxTokens);
   daily.count += 1;
   let lastErr = httpError(429, 'semua akun & provider sedang kena limit');
-  for (const [p, model] of groups) {
+  groups: for (const [p, model] of groups) {
     const accts = accountsFor(p, agent.leader);
     const busy = []; // akun yang dilewati karena jatah token/menit kurang
     for (const canWait of [false, true]) {
       for (const acct of canWait ? busy : accts) {
         const q = quotaOf(p, model, acct.label);
         if (q.blockedUntil > Date.now()) continue;
+        if (q.tokLimit && input > q.tokLimit * 0.95) { // input saja sudah melebihi jatah/menit: semua akun provider ini pasti menolak (413)
+          console.log(`[antre] ${p.name} dilewati: input ±${input} token > batas ${q.tokLimit}/menit, pakai provider berikutnya`);
+          continue groups;
+        }
         if (!(await reserveTokens(q, need, `${p.name} ${acct.label}`, canWait))) {
           if (!canWait) busy.push(acct);
           continue;
@@ -312,6 +345,10 @@ async function* generate(agent, system, messages, signal, maxTokens = MAX_TOKENS
           lastErr = err;
           console.error(`[chat error] ${p.name} model=${model} akun=${acct.label}`, err?.status || '', String(err?.message || err).slice(0, 200));
           if (sent) throw err; // sebagian jawaban sudah terkirim, jangan disambung akun/provider lain
+          if (err.status === 413) { // request terlalu besar untuk provider ini: akun lain juga pasti menolak
+            q.tokLimit ??= Math.max(1000, input - 1);
+            continue groups;
+          }
         }
       }
     }
@@ -327,20 +364,37 @@ async function collect(gen) {
 
 const firstName = (a) => a.name.split(' ')[0];
 
-// Ambil JSON rencana dari jawaban leader/manager. Kalau tidak bisa dibaca: semua anggota dapat brief utuh,
-// atau error kalau fallbackAll = false (manager, supaya tidak memanggil semua divisi sekaligus).
-function parsePlan(raw, mates, brief, fallbackAll = true) {
+// Ambil JSON rencana dari jawaban leader/manager:
+// { questions } kalau brief terlalu tipis (hanya kalau canAsk), atau { facts, summary, tasks }.
+// Kalau tidak bisa dibaca: semua anggota dapat brief utuh, atau error kalau fallbackAll = false
+// (manager, supaya tidak memanggil semua divisi sekaligus).
+function parsePlan(raw, mates, brief, { fallbackAll = true, canAsk = false } = {}) {
   try {
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)[0]);
+    const ask = Array.isArray(j.pertanyaan) ? j.pertanyaan.map((q) => String(q).trim()).filter(Boolean).slice(0, 3) : [];
+    if (canAsk && ask.length && !(j.tugas || []).length) return { questions: ask };
+    const f = j[Object.keys(j).find((k) => /^(fakta|facts?|key_?facts)/i.test(k))]; // AI kadang menamai "fakta_kunci"/"facts"
+    const facts = typeof f === 'string' ? f.trim()
+      : f && typeof f === 'object' ? Object.entries(f).map(([k, v]) => `${k}: ${v}`).join('; ') : '';
+    if (!facts) console.log('[rencana] tanpa fakta kunci:', raw.slice(0, 300).replace(/\s+/g, ' '));
     const find = (id) => mates.find((m) => m.id === String(id).toLowerCase() || firstName(m).toLowerCase() === String(id).toLowerCase());
     const tasks = (j.tugas || [])
       .map((t) => ({ agent: find(t.id), task: String(t.tugas || '').trim() }))
       .filter((t, i, all) => t.agent && t.task && all.findIndex((x) => x.agent === t.agent) === i);
-    if (tasks.length) return { summary: String(j.rencana || '').trim(), tasks };
+    if (tasks.length) return { facts, summary: String(j.rencana || '').trim(), tasks };
   } catch { /* pakai cadangan di bawah */ }
   if (!fallbackAll) throw httpError(502, `rencana tidak terbaca: ${raw.slice(0, 120)}`);
-  return { summary: '', tasks: mates.map((m) => ({ agent: m, task: `Kerjakan bagian dari brief ini sesuai keahlianmu (${m.focus}):\n${brief}` })) };
+  return { facts: '', summary: '', tasks: mates.map((m) => ({ agent: m, task: `Kerjakan bagian dari brief ini sesuai keahlianmu (${m.focus}):\n${brief}` })) };
 }
+
+// Balasan saat brief terlalu tipis: pertanyaan dulu, tim belum dipanggil (hemat kuota).
+const askFirst = (who, questions) => `### ❓ ${firstName(who)} perlu info dulu sebelum membagi tugas\n`
+  + questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+  + '\n\nJawab pertanyaan di atas (atau tulis "pakai asumsi saja"), lalu kirim lagi dengan kotak tim tetap dicentang.';
+// ponytail: heuristik kasar, brief >= 8 kata dianggap cukup jelas dan tidak boleh dijawab dengan pertanyaan
+// (AI cenderung terlalu sering bertanya). Kalau ada brief panjang yang tetap perlu ditanya, naikkan batasnya.
+const mayAsk = (brief) => brief.trim().split(/\s+/).length < 8;
+const factsBlock = (facts) => (facts ? `Fakta kunci (wajib dipakai sama persis, jangan diubah):\n${facts}\n\n` : '');
 
 // Jalankan tugas-tugas bersamaan; hasil dikeluarkan sesuai urutan tugas. Satu gagal tidak menghentikan yang lain.
 async function* runAll(tasks, work, signal, onStatus) {
@@ -360,7 +414,8 @@ async function* runAll(tasks, work, signal, onStatus) {
   for (const job of jobs) yield await job;
 }
 
-const planList = (who, summary, lines) => `### Rencana ${firstName(who)}\n${summary ? `${summary}\n\n` : ''}${lines.join('\n')}\n\n`;
+const planList = (who, plan, lines) => `### Rencana ${firstName(who)}\n${plan.summary ? `${plan.summary}\n\n` : ''}`
+  + `${plan.facts ? `**Fakta kunci:** ${plan.facts}\n\n` : ''}${lines.join('\n')}\n\n`;
 const firstLine = (s) => s.split('\n')[0].slice(0, 200);
 
 // Mode kerja tim: leader membagi tugas -> anggota mengerjakan bersamaan -> leader menggabungkan.
@@ -371,14 +426,19 @@ async function* teamWork(leader, messages, signal, onStatus, verbose = true) {
   const brief = messages[messages.length - 1].content;
   const leaderSystem = buildSystemPrompt(leader);
 
-  // 1. Rencana
-  const planRaw = await collect(generate(leader, `${leaderSystem}\n\n${teamPlanPrompt(mates)}`, messages, signal));
-  const plan = parsePlan(planRaw, mates, brief);
-  if (verbose) yield planList(leader, plan.summary, plan.tasks.map((t) => `- **${firstName(t.agent)}** (${t.agent.role}): ${firstLine(t.task)}`));
+  // 1. Rencana (di bawah manager tidak boleh bertanya: brief sudah dicek Bram)
+  const canAsk = verbose && mayAsk(brief);
+  const planRaw = await collect(generate(leader, `${leaderSystem}\n\n${teamPlanPrompt(mates, canAsk)}`, messages, signal));
+  const plan = parsePlan(planRaw, mates, brief, { canAsk });
+  if (plan.questions) {
+    yield askFirst(leader, plan.questions);
+    return;
+  }
+  if (verbose) yield planList(leader, plan, plan.tasks.map((t) => `- **${firstName(t.agent)}** (${t.agent.role}): ${firstLine(t.task)}`));
 
   // 2. Anggota bekerja bersamaan
   const work = (agent, task) => collect(generate(agent, `${buildSystemPrompt(agent)}\n\n${TEAM_MEMBER}`,
-    [{ role: 'user', content: `Brief untuk tim ${divisionById(leader.division).name}:\n"""\n${brief}\n"""\n\nTugasmu dari ${leader.name}:\n${task}` }], signal));
+    [{ role: 'user', content: `${factsBlock(plan.facts)}Tugasmu dari ${leader.name}:\n${task}\n\nBrief untuk tim ${divisionById(leader.division).name} (konteks):\n"""\n${brief}\n"""` }], signal));
   const results = [];
   for await (const r of runAll(plan.tasks, work, signal, onStatus)) {
     results.push(r);
@@ -390,7 +450,7 @@ async function* teamWork(leader, messages, signal, onStatus, verbose = true) {
   const done = results.filter((r) => r.text).map((r) => `## ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n');
   if (verbose) yield `### 📝 Hasil akhir dari ${firstName(leader)}\n`;
   yield* generate(leader, `${leaderSystem}\n\n${TEAM_FINAL}`,
-    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja timmu:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n${factsBlock(plan.facts)}---\nHasil kerja timmu:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
 }
 
 // Mode manager: GM membagi brief ke penanggung jawab divisi -> tiap leader bekerja bersama timnya
@@ -403,9 +463,13 @@ async function* managerWork(manager, messages, signal, onStatus) {
   const hasTeam = (a) => agentsOf(a.division).length > 1;
 
   // 1. Rencana: pilih divisi
-  const planRaw = await collect(generate(manager, `${managerSystem}\n\n${managerPlanPrompt(heads)}`, messages, signal));
-  const plan = parsePlan(planRaw, heads, brief, false);
-  yield planList(manager, plan.summary,
+  const planRaw = await collect(generate(manager, `${managerSystem}\n\n${managerPlanPrompt(heads, mayAsk(brief))}`, messages, signal));
+  const plan = parsePlan(planRaw, heads, brief, { fallbackAll: false, canAsk: mayAsk(brief) });
+  if (plan.questions) {
+    yield askFirst(manager, plan.questions);
+    return;
+  }
+  yield planList(manager, plan,
     plan.tasks.map((t) => `- **${divName(t.agent)}** → ${firstName(t.agent)}${hasTeam(t.agent) ? ' & tim' : ''}: ${firstLine(t.task)}`));
 
   // 2. Divisi bekerja bersamaan
@@ -414,7 +478,7 @@ async function* managerWork(manager, messages, signal, onStatus) {
   const work = (head, task) => {
     const others = plan.tasks.filter((t) => t.agent !== head)
       .map((t) => `- ${divName(t.agent)}: ${firstLine(t.task)}`).join('\n');
-    const content = `Tugas divisimu dari ${manager.name} (kerjakan HANYA ini):\n${task}\n\n`
+    const content = `${factsBlock(plan.facts)}Tugas divisimu dari ${manager.name} (kerjakan HANYA ini):\n${task}\n\n`
       + (others ? `Bagian lain sudah dikerjakan divisi lain, JANGAN ikut dibuat:\n${others}\n\n` : '')
       + `Brief asli user (hanya untuk konteks):\n"""\n${brief}\n"""`;
     return hasTeam(head)
@@ -432,7 +496,7 @@ async function* managerWork(manager, messages, signal, onStatus) {
   const done = results.filter((r) => r.text).map((r) => `## ${divName(r.agent)} (${r.agent.name})\n${r.text}`).join('\n\n');
   yield `### 📝 Hasil akhir dari ${firstName(manager)}\n`;
   yield* generate(manager, `${managerSystem}\n\n${MANAGER_FINAL}`,
-    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n---\nHasil kerja semua divisi:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
+    [...messages.slice(0, -1), { role: 'user', content: `${brief}\n\n${factsBlock(plan.facts)}---\nHasil kerja semua divisi:\n\n${done}` }], signal, FINAL_MAX_TOKENS);
 }
 
 // ---------- API ----------

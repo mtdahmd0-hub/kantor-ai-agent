@@ -9,6 +9,12 @@ import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { renderMarkdown } from '../src/md.js';
+import { trimForSend } from '../src/chat.js';
+
+// 0a) browser meringkas riwayat sebelum dikirim (dulu riwayat panjang ditolak server karena >100KB)
+const hist = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(i % 2 ? 40_000 : 100) }));
+const sent = trimForSend(hist);
+assert.ok(sent.length === 20 && JSON.stringify(sent).length < 400_000, 'riwayat tidak diringkas');
 
 // 0) renderer chat: tabel jadi <table>, <br> di sel diizinkan, HTML lain tetap di-escape (tanpa panggil AI)
 const md = renderMarkdown('| Paket | Harga |\n|---|---:|\n| **Basic** | Rp5jt<br>3 halaman |\n\n<script>x</script>');
@@ -65,10 +71,12 @@ if (staffCount && process.env.GROQ_API_KEY) {
   const acct = (id) => c.log.match(new RegExp(`\\[chat\\] ${id} via groq model=\\S+ akun=(utama|staf \\d+)`))?.[1];
   console.log('giliran :', ['rina', ...team].map((id) => `${id}=${acct(id)}`).join('  '));
   assert.ok(!c.error, `giliran gagal: ${c.error}\n${c.log}`);
-  assert.equal(acct('rina'), 'utama', 'leader harus pakai akun utama');
+  // akun yang sedang kehabisan jatah token/menit sengaja dilewati, jadi urutannya tidak selalu sama;
+  // yang dicek: semua dijawab Groq dan anggota tim tersebar ke beberapa akun staf
+  assert.ok(acct('rina'), 'leader harus dijawab Groq (akun utama atau pinjam akun staf)');
   const used = team.slice(0, staffCount).map(acct);
-  assert.ok(used.every((a) => /^staf/.test(a)), `anggota tim harus pakai akun staf dulu: ${used}`);
-  assert.equal(new Set(used).size, staffCount, `akun staf harus bergiliran: ${used}`);
+  assert.ok(used.every(Boolean), `semua anggota tim harus dijawab Groq: ${used}`);
+  assert.ok(new Set(used.filter((a) => /^staf/.test(a))).size >= Math.min(2, staffCount), `akun staf harus bergiliran: ${used}`);
 
   const d = await ask({ LLM_ORDER: 'groq', GROQ_STAFF_KEYS: 'rusak-1,rusak-2' }, 3094, ['bagas']);
   console.log('staf habis -> utama:', d.log.match(/\[chat\] bagas via \S+ model=\S+ akun=\S+/)?.[0]);

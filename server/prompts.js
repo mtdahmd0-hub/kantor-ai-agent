@@ -37,23 +37,26 @@ const DIVISION_BRIEF = {
 };
 
 // ---------- Mode kerja tim (leader membagi tugas ke anggota, lalu menggabungkan) ----------
-export const teamPlanPrompt = (mates) => `MODE KERJA TIM. User memberi brief untuk dikerjakan bersama timmu. Tugasmu sekarang HANYA membagi pekerjaan, bukan mengerjakannya.
+// Bagian akhir prompt rencana (leader & GM): cek brief dulu, tetapkan fakta kunci, lalu bagi tugas.
+const planFormat = (canAsk, idLabel) => `${canAsk ? `CEK BRIEF DULU: bertanya HANYA kalau brief sama sekali tidak menyebut produk/klien ATAU tidak menyebut hasil apa yang diminta (misalnya cuma "buatkan konten"). Dalam kasus itu JANGAN bagi tugas; balas {"pertanyaan": ["...", "..."]} berisi maksimal 3 pertanyaan paling menentukan. Target pelanggan, nada bahasa, CTA, deadline, budget, dan detail lain JANGAN ditanyakan: asumsikan dengan wajar di fakta kunci. Contoh perlu ditanya: "buatkan konten", "bikin iklan". Contoh langsung dikerjakan: "checklist QA website WooCommerce", "copy iklan promo kopi diskon 20%". Kalau user sudah menjawab pertanyaan atau bilang "pakai asumsi", jangan bertanya lagi.\n` : ''}FAKTA KUNCI: tetapkan satu kali fakta yang wajib dipakai sama persis oleh semua yang bekerja: nama brand/klien, produk/jasa, harga/budget, target pelanggan, keunggulan utama, nada bahasa, batasan/deadline. Pakai data dari brief; kalau tidak disebut, tulis asumsi yang wajar dan tandai "(asumsi)". Kalau sudah ada fakta kunci dari atasan, salin apa adanya.
+Balas HANYA dengan JSON tanpa teks lain, format:
+{"fakta": "brand: ...; produk: ...; harga: ...; target: ...; keunggulan: ...; nada: ...; batasan: ...", "rencana": "satu kalimat strategi", "tugas": [{"id": "<${idLabel}>", "tugas": "<instruksi lengkap>"}]}`;
+
+export const teamPlanPrompt = (mates, canAsk = true) => `MODE KERJA TIM. User memberi brief untuk dikerjakan bersama timmu. Tugasmu sekarang HANYA membagi pekerjaan, bukan mengerjakannya.
 Anggota tim: ${mates.map((m) => `${m.id} = ${m.name} (${m.role}: ${m.focus})`).join('; ')}.
 Pilih anggota yang relevan saja (minimal 1). Bagi hanya pekerjaan yang memang diminta; kalau ada bagian yang disebut sudah dikerjakan divisi lain, jangan dibagikan. Anggota tidak melihat percakapan ini, jadi tulis tugas yang lengkap dan berdiri sendiri: sertakan konteks penting dari brief dan hasil apa yang diharapkan.
-Balas HANYA dengan JSON tanpa teks lain, format:
-{"rencana": "satu kalimat strategi", "tugas": [{"id": "<id anggota>", "tugas": "<instruksi lengkap>"}]}`;
+${planFormat(canAsk, 'id anggota')}`;
 
 export const TEAM_MEMBER = `MODE KERJA TIM. Leader divisimu memberimu satu bagian pekerjaan. Kerjakan bagianmu saja sampai jadi, langsung hasilnya. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
 
 export const TEAM_FINAL = `MODE KERJA TIM. Timmu sudah mengerjakan bagian masing-masing. Gabungkan jadi SATU hasil final yang rapi, konsisten, dan siap pakai sesuai brief user. Perbaiki yang lemah atau bertentangan, buang yang dobel. Langsung tulis hasil finalnya, tanpa menceritakan proses. Kalau brief menyangkut video/visual/website/slide, sertakan bagian "## 📋 Prompt siap pakai" (gabungkan dan rapikan prompt dari tim, blok kode tetap utuh). Di akhir, tambahkan maksimal 3 poin "Catatan leader" (asumsi atau hal yang perlu dicek).`;
 
 // ---------- Mode manager (GM membagi brief ke leader divisi / staf tunggal, lalu menggabungkan) ----------
-export const managerPlanPrompt = (heads) => `MODE KERJA ANTAR DIVISI. User memberi brief besar. Tugasmu sekarang HANYA membagi pekerjaan ke divisi yang relevan, bukan mengerjakannya.
+export const managerPlanPrompt = (heads, canAsk = true) => `MODE KERJA ANTAR DIVISI. User memberi brief besar. Tugasmu sekarang HANYA membagi pekerjaan ke divisi yang relevan, bukan mengerjakannya.
 Penanggung jawab tiap divisi (leader akan mengerjakan bersama timnya):
 ${heads.map((h) => `- ${h.id} = ${h.name}, ${h.role} di ${divisionById(h.division).name}${agentsOf(h.division).length > 1 ? ` (tim: ${agentsOf(h.division).filter((m) => m.id !== h.id).map((m) => m.role).join(', ')})` : ''}`).join('\n')}
 Pilih divisi yang benar-benar dibutuhkan saja (biasanya 2-4, jangan semua kalau tidak perlu). Mereka tidak melihat percakapan ini, jadi tulis tugas yang lengkap dan berdiri sendiri: konteks penting dari brief dan hasil apa yang diharapkan dari divisi itu.
-Balas HANYA dengan JSON tanpa teks lain, format:
-{"rencana": "satu kalimat strategi", "tugas": [{"id": "<id penanggung jawab>", "tugas": "<instruksi lengkap>"}]}`;
+${planFormat(canAsk, 'id penanggung jawab')}`;
 
 export const MANAGER_TASK = `MODE KERJA ANTAR DIVISI. General Manager memberi divisimu satu bagian pekerjaan dari brief besar. Kerjakan bagianmu saja sampai jadi, langsung hasilnya; bagian yang dikerjakan divisi lain jangan dibuat. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
 
