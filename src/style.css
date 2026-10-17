@@ -128,6 +128,13 @@ body.chatting #hint { opacity: 0; }
 .tag.done .s { background: #22b573; }
 .tag small { font-weight: 500; color: var(--ink-soft); font-size: 10.5px; }
 .tag .st { font-weight: 600; color: #b9770e; font-size: 10.5px; }
+/* ringkas: nama depan (+★ leader); sisanya hanya saat disorot/dipilih (.full) */
+.tag .rest, .tag small, .tag .st { display: none; }
+.tag.full .rest, .tag.full small { display: inline; }
+.tag.full .st:not(:empty) { display: inline; }
+.tag { padding: 3px 9px 3px 7px; gap: 5px; }
+.tag.lead::after { content: '★'; color: #f5a524; font-size: 10px; }
+.tag.full { z-index: 2; }
 .tag.selected { background: var(--ink); color: #fff; border-color: var(--ink); }
 .tag.selected small, .tag.selected .st { color: #cbd5e6; }
 @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: .55; } }

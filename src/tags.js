@@ -1,15 +1,19 @@
 import * as THREE from 'three';
 
 // Tag nama (DOM) yang mengikuti kepala tiap karakter.
+// Ringkas: nama depan saja (+★ untuk leader); nama lengkap, jabatan, dan status teks hanya saat disorot/dipilih.
 export function createTags(stage, container) {
   const items = new Map();
   const v = new THREE.Vector3();
 
   for (const c of stage.office.chars) {
     const el = document.createElement('div');
-    el.className = 'tag';
-    el.innerHTML = '<span class="s"></span><span class="n"></span><small></small><span class="st"></span>';
-    el.querySelector('.n').textContent = c.agent.name;
+    el.className = c.agent.leader ? 'tag lead' : 'tag';
+    el.innerHTML = '<span class="s"></span><span class="n"></span><span class="rest"></span><small></small><span class="st"></span>';
+    const [first, ...rest] = c.agent.name.split(' ');
+    el.querySelector('.n').textContent = first;
+    el.querySelector('.rest').textContent = rest.join(' ');
+    el.title = `${c.agent.name} · ${c.agent.role}`;
     el.querySelector('small').textContent = c.agent.role;
     container.appendChild(el);
     const single = stage.office.chars.filter((x) => x.agent.division === c.agent.division).length === 1;
@@ -38,10 +42,12 @@ export function createTags(stage, container) {
       const y = (-v.y * 0.5 + 0.5) * h;
       const inView = v.z > -1 && v.z < 1 && x > -80 && x < w + 80 && y > -40 && y < h + 40;
 
-      const state = `${visible && inView ? 1 : 0}|${c.status}|${id === selectedId ? 1 : 0}`;
+      const full = id === hoveredId || id === selectedId;
+      const state = `${visible && inView ? 1 : 0}|${c.status}|${id === selectedId ? 1 : 0}|${full ? 1 : 0}`;
       if (state !== it.last) {
         it.last = state;
         el.classList.toggle('on', visible && inView);
+        el.classList.toggle('full', full);
         el.classList.toggle('working', c.status === 'working');
         el.classList.toggle('done', c.status === 'done');
         el.classList.toggle('selected', id === selectedId);
