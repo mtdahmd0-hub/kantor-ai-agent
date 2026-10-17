@@ -30,6 +30,20 @@ export function clearHistory(id) {
   persist();
 }
 
+// Profil klien (brand kit): disimpan di browser, yang aktif ikut dikirim di setiap chat.
+const KEY_CLIENTS = 'kantorai.clients.v1';
+export function getClients() {
+  try {
+    const d = JSON.parse(safe.get(KEY_CLIENTS) || '{}');
+    return { list: Array.isArray(d.list) ? d.list : [], active: d.active ?? null };
+  } catch { return { list: [], active: null }; }
+}
+export const saveClients = (d) => safe.set(KEY_CLIENTS, JSON.stringify(d));
+export function activeClient() {
+  const { list, active } = getClients();
+  return list.find((c) => c.id === active) || null;
+}
+
 export const getCode = () => safe.get(KEY_CODE) || '';
 export const setCode = (c) => (c ? safe.set(KEY_CODE, c) : safe.del(KEY_CODE));
 
@@ -57,7 +71,7 @@ export async function streamChat(agentId, messages, { onText, onWho, signal, tea
     res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-access-code': getCode() },
-      body: JSON.stringify({ agentId, messages: trimForSend(messages), team }),
+      body: JSON.stringify({ agentId, messages: trimForSend(messages), team, client: activeClient() ? `Klien: ${activeClient().name}\n${activeClient().text}` : '' }),
       signal,
     });
   } catch (e) {

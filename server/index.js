@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, writeFile } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AGENTS, agentById, agentsOf, divisionById } from '../shared/roster.js';
+import { readLinkedPages } from './web.js';
 import { buildSystemPrompt, teamPlanPrompt, TEAM_MEMBER, TEAM_FINAL, managerPlanPrompt, MANAGER_TASK, MANAGER_FINAL } from './prompts.js';
 
 // ---------- Konfigurasi (lihat .env.example) ----------
@@ -565,6 +566,16 @@ app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
   const messages = cleanMessages(req.body?.messages);
   if (!messages.length || messages[messages.length - 1].role !== 'user') {
     return res.status(400).json({ error: 'Pesan kosong.' });
+  }
+
+  // Lampiran otomatis di pesan terakhir user (ikut ke rencana, semua divisi, dan anggota tim):
+  // profil klien aktif dari browser + isi halaman web yang ditautkan.
+  if (!DEMO) {
+    const last = messages[messages.length - 1];
+    const client = String(req.body?.client || '').trim().slice(0, 2000);
+    const pages = await readLinkedPages(last.content);
+    if (client) last.content = `Profil klien aktif (pakai sebagai fakta utama, jangan diubah):\n${client}\n\n---\nPermintaan:\n${last.content}`;
+    last.content += pages;
   }
 
   res.writeHead(200, {

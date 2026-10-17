@@ -10,6 +10,14 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { renderMarkdown } from '../src/md.js';
 import { trimForSend } from '../src/chat.js';
+import { readLinkedPages, summarizePage } from './web.js';
+
+// 0b) pembaca link: alamat internal/privat ditolak (cegah SSRF), ringkasan halaman mengambil info SEO
+for (const u of ['http://localhost/', 'http://169.254.169.254/latest/meta-data/', 'http://192.168.1.1/']) {
+  assert.match(await readLinkedPages(`cek ${u}`), /internal\/privat/, `alamat privat lolos: ${u}`);
+}
+const page = summarizePage('https://x.test/', '<html lang="id"><title>Toko A</title><meta name="description" content="Jual kopi"><h1>Kopi Enak</h1><img src="a.jpg"><script>secret()</script><p>Halo</p></html>');
+assert.ok(/Title: Toko A/.test(page) && /Jual kopi/.test(page) && /H1: Kopi Enak/.test(page) && /tanpa alt: 1/.test(page) && !page.includes('secret'), 'ringkasan halaman salah');
 
 // 0a) browser meringkas riwayat sebelum dikirim (dulu riwayat panjang ditolak server karena >100KB)
 const hist = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(i % 2 ? 40_000 : 100) }));

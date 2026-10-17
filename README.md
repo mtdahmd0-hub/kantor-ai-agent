@@ -28,6 +28,10 @@ Leader pakai model yang lebih pintar, anggota tim pakai model yang lebih ringan.
 
 Mode tim memakai banyak panggilan AI sekaligus (sekitar 5 per divisi, 10-20 untuk Bram), jadi kuota gratis lebih cepat habis. `DAILY_MAX_REQUESTS` menghitung setiap panggilan AI. Tes semua mode: `node server/test-all.mjs --team`.
 
+**Profil klien:** klik baris "🏷️ Klien" di panel chat untuk menyimpan data klien (brand, produk & harga, target, nada, warna, link). Klien yang aktif otomatis dipakai semua karyawan sebagai fakta. Data tersimpan di browser masing-masing.
+
+**Baca link:** tempel URL `http(s)://` di pesan (maks 2), server membuka halamannya dan menyertakan title, meta description, heading, gambar tanpa alt, dan teks halaman. Alamat internal/privat ditolak. JavaScript halaman tidak dijalankan dan kecepatan asli (Core Web Vitals) tidak terukur dari sini.
+
 **Teknologi:** Node.js + Express (backend, API kompatibel OpenAI: Gemini / Groq / OpenRouter), JavaScript biasa + Three.js (frontend), Vite (dev server dan build). Tanpa database.
 
 ## Daftar isi

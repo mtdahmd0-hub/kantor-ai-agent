@@ -5,6 +5,9 @@ import { createTags } from './tags.js';
 import { createPanel } from './panel.js';
 import { fetchConfig, getCode, setCode } from './chat.js';
 import { initQuota } from './quota.js';
+import { initClients } from './clients.js';
+
+initClients();
 
 const quota = initQuota();
 let quotaTimer = 0;

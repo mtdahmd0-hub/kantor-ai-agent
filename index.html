@@ -47,6 +47,9 @@
       </button>
     </div>
     <div id="mates" class="mates"></div>
+    <button id="client-bar" class="client-bar" type="button" title="Profil klien dipakai semua karyawan sebagai fakta">
+      <span>🏷️ Klien:</span> <b id="client-name">belum dipilih</b> <u>ubah</u>
+    </button>
     <div id="messages" class="messages" role="log" aria-live="polite"></div>
     <div id="quick" class="quick"></div>
     <label id="team-toggle" class="team-toggle" hidden>
@@ -61,6 +64,28 @@
     </form>
     <div class="panel-foot">AI bisa keliru. Semua jawaban berupa draft, cek dulu sebelum dikirim ke klien.</div>
   </aside>
+
+  <dialog id="client-dialog" class="client-dialog" aria-labelledby="client-title">
+    <form id="client-form" method="dialog">
+      <h2 id="client-title">Profil klien</h2>
+      <p>Diisi sekali, lalu dipakai semua karyawan (chat biasa, tim, dan Bram) sebagai fakta. Tersimpan di browser ini saja.</p>
+      <label>Pilih klien
+        <select id="client-select"></select>
+      </label>
+      <label>Nama klien / brand
+        <input id="client-input-name" maxlength="80" placeholder="mis. Kopi Senja" autocomplete="off">
+      </label>
+      <label>Detail
+        <textarea id="client-text" rows="9" maxlength="1800" placeholder="Produk/jasa &amp; harga:&#10;Target pelanggan:&#10;Keunggulan:&#10;Nada bahasa:&#10;Warna/visual:&#10;Website/sosmed:&#10;Catatan lain:"></textarea>
+      </label>
+      <div class="client-actions">
+        <button type="button" id="client-delete" class="danger">Hapus</button>
+        <span></span>
+        <button type="button" id="client-cancel" class="ghost">Batal</button>
+        <button type="submit" id="client-save">Simpan &amp; pakai</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="gate" class="gate" hidden>
     <form id="gate-form" class="gate-card">
