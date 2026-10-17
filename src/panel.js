@@ -21,6 +21,7 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     input: $('input'),
     send: $('btn-send'),
     reset: $('btn-reset'),
+    wide: $('btn-wide'),
     close: $('btn-close'),
   };
 
@@ -250,6 +251,19 @@ export function createPanel({ onSelect, onClose, onStatus, onNeedCode, isDemo })
     }
   });
   els.team.addEventListener('change', syncSend);
+
+  // Mode lebar: diingat di browser; kamera 3D digeser ulang setelah panel selesai melebar
+  const setWide = (on) => {
+    document.body.classList.toggle('wide', on);
+    els.wide.setAttribute('aria-pressed', String(on));
+    els.wide.title = on ? 'Kembalikan lebar panel' : 'Perlebar panel chat';
+    try { localStorage.setItem('kantorai.wide', on ? '1' : '0'); } catch { /* abaikan */ }
+    setTimeout(() => dispatchEvent(new Event('resize')), 320);
+  };
+  let wideSaved = false;
+  try { wideSaved = localStorage.getItem('kantorai.wide') === '1'; } catch { /* abaikan */ }
+  setWide(wideSaved);
+  els.wide.addEventListener('click', () => setWide(!document.body.classList.contains('wide')));
   els.close.addEventListener('click', () => onClose());
   els.reset.addEventListener('click', () => {
     if (!currentId) return;

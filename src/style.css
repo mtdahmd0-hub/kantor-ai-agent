@@ -6,7 +6,7 @@
   --card-solid: #ffffff;
   --line: rgba(29, 36, 51, 0.1);
   --accent: #4f7cff;
-  --panel-w: 420px;
+  --panel-w: clamp(420px, 36vw, 560px);
   --radius: 16px;
   --shadow: 0 10px 34px rgba(30, 45, 80, 0.18);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -145,7 +145,7 @@ body.chatting #hint { opacity: 0; }
   display: flex; flex-direction: column; background: var(--card-solid); border-radius: 20px;
   border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden;
   transform: translateX(calc(100% + 24px)); opacity: 0; pointer-events: none;
-  transition: transform .45s cubic-bezier(.2, .8, .2, 1), opacity .3s;
+  transition: transform .45s cubic-bezier(.2, .8, .2, 1), opacity .3s, width .3s ease;
 }
 body.chatting #panel { transform: none; opacity: 1; pointer-events: auto; }
 
@@ -183,6 +183,10 @@ body.chatting #panel { transform: none; opacity: 1; pointer-events: auto; }
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
 .msg { max-width: 88%; display: flex; flex-direction: column; gap: 4px; animation: pop .25s ease both; }
 .msg.user { align-self: flex-end; align-items: flex-end; }
+.msg.assistant { max-width: 100%; }
+/* mode lebar (tombol Perlebar): untuk membaca proposal / paket prompt yang panjang */
+body.wide { --panel-w: min(900px, calc(100vw - 320px)); }
+#btn-wide[aria-pressed='true'] { background: var(--ink); color: #fff; }
 .bubble { padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.55; word-wrap: break-word; overflow-wrap: anywhere; }
 .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 5px; white-space: pre-wrap; }
 .msg.assistant .bubble { background: #eef2f8; border-bottom-left-radius: 5px; }
@@ -272,6 +276,7 @@ body.chatting #panel { transform: none; opacity: 1; pointer-events: auto; }
   .brand small { display: none; }
   .brand { padding: 6px 10px 6px 8px; }
   #hint { display: none; }
+  #btn-wide { display: none; }
   #banner { top: 56px; left: 8px; }
   .quota { left: 8px; top: 56px; width: min(270px, calc(100vw - 16px)); }
   body.chatting .quota { display: none; }
