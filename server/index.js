@@ -478,9 +478,16 @@ if (existsSync(dist)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Kantor AI API jalan di http://localhost:${PORT}`);
-  console.log(DEMO ? 'Mode: DEMO (tanpa API key AI)'
-    : `Mode: LIVE  urutan: ${PROVIDERS.map((p) => `${p.name}(${p.leader} / ${p.team}${p.staff.length ? `, ${p.staff.length} akun staf digilir` : ''})`).join(' > ')}`);
-  console.log(ACCESS_CODE ? 'Kode akses: aktif' : 'Kode akses: TIDAK aktif (isi ACCESS_CODE sebelum dipublikasi)');
-});
+// Di Vercel, app dipakai sebagai serverless function (api/index.js) tanpa listen.
+// ponytail: di Vercel, rate limit, batas harian, dan catatan kuota hanya di memori tiap instance
+// (bisa reset saat instance baru dibuat); ACCESS_CODE tetap jadi pengaman utama.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Kantor AI API jalan di http://localhost:${PORT}`);
+    console.log(DEMO ? 'Mode: DEMO (tanpa API key AI)'
+      : `Mode: LIVE  urutan: ${PROVIDERS.map((p) => `${p.name}(${p.leader} / ${p.team}${p.staff.length ? `, ${p.staff.length} akun staf digilir` : ''})`).join(' > ')}`);
+    console.log(ACCESS_CODE ? 'Kode akses: aktif' : 'Kode akses: TIDAK aktif (isi ACCESS_CODE sebelum dipublikasi)');
+  });
+}
+
+export default app;

@@ -1,0 +1,11 @@
+# Jangan ikut diunggah saat `npm run vercel -- deploy`: rahasia, login CLI, dan file lokal.
+# API key di Vercel diisi lewat Environment Variables, bukan file .env.
+.env
+.env.*
+!.env.example
+.vercel-cli
+.claude
+node_modules
+dist
+server/.quota.json
+*.log

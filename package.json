@@ -9,7 +9,8 @@
     "dev:web": "vite",
     "dev:api": "node --watch server/index.js",
     "build": "vite build",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "vercel": "npx --yes vercel@latest --global-config .vercel-cli"
   },
   "dependencies": {
     "dotenv": "latest",

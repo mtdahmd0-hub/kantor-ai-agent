@@ -3,3 +3,8 @@ dist
 .env
 *.log
 server/.quota.json
+.vercel
+.vercel-cli
+
+.vercel
+.env*
