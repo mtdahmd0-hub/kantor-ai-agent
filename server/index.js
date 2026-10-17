@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFile } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AGENTS, agentById, agentsOf, divisionById } from '../shared/roster.js';
 import { buildSystemPrompt, teamPlanPrompt, TEAM_MEMBER, TEAM_FINAL, managerPlanPrompt, MANAGER_TASK, MANAGER_FINAL } from './prompts.js';
@@ -117,6 +117,71 @@ function httpError(status, message) {
   return Object.assign(new Error(String(message).slice(0, 300)), { status });
 }
 
+// ---------- Pelacak kuota (untuk bar kuota di UI) ----------
+// Groq memberi sisa jatah di header; OpenRouter lewat /api/v1/key; Gemini tidak memberi apa-apa,
+// jadi pemakaiannya dihitung sendiri dan limitnya diketahui dari error 429.
+// ponytail: hitungan Gemini hanya dari request lewat server ini dan reset tengah malam waktu Pasifik
+// (jadwal reset Gemini). Kalau key yang sama dipakai aplikasi lain, angkanya lebih kecil dari aslinya.
+const QUOTA_FILE = fileURLToPath(new URL('./.quota.json', import.meta.url));
+const quotaDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+let quota = { day: quotaDay(), models: {} };
+try {
+  const saved = JSON.parse(readFileSync(QUOTA_FILE, 'utf8'));
+  if (saved.day === quota.day) quota = saved;
+} catch { /* belum ada file */ }
+const saveQuota = () => writeFile(QUOTA_FILE, JSON.stringify(quota), () => {});
+
+function quotaOf(p, model) {
+  if (quota.day !== quotaDay()) quota = { day: quotaDay(), models: {} };
+  return (quota.models[`${p.name}:${model}`] ??= { used: 0 });
+}
+
+// "1m26.4s", "577ms", "956s", "2h3m" -> milidetik
+function parseDuration(s) {
+  let ms = 0;
+  for (const [, n, u] of String(s || '').matchAll(/([\d.]+)(ms|h|m|s)/g)) ms += n * { ms: 1, s: 1e3, m: 6e4, h: 3.6e6 }[u];
+  return ms;
+}
+
+function noteHeaders(p, model, h) {
+  const limit = h.get('x-ratelimit-limit-requests');
+  if (limit == null) return;
+  const q = quotaOf(p, model);
+  q.limit = Number(limit);
+  q.remaining = Number(h.get('x-ratelimit-remaining-requests'));
+}
+
+function noteLimited(p, model, headers, body) {
+  const q = quotaOf(p, model);
+  let wait = Number(headers.get('retry-after')) * 1000 || 60_000;
+  try {
+    const j = JSON.parse(body);
+    for (const d of (Array.isArray(j) ? j[0] : j)?.error?.details || []) {
+      if (d.retryDelay) wait = parseDuration(d.retryDelay);
+      for (const v of d.violations || []) {
+        if (/PerDay/.test(v.quotaId) && v.quotaValue) { // jatah harian Gemini habis
+          q.limit = Number(v.quotaValue);
+          q.used = Math.max(q.used, q.limit);
+        }
+      }
+    }
+  } catch { /* bukan JSON */ }
+  q.blockedUntil = Date.now() + wait;
+  saveQuota();
+}
+
+let orInfo = { at: 0, data: null };
+async function openRouterFree(p) {
+  if (Date.now() - orInfo.at < 30_000) return orInfo.data;
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: `Bearer ${p.key}` }, signal: AbortSignal.timeout(5000) });
+    orInfo = { at: Date.now(), data: (await r.json()).data?.free_model_daily_requests || null };
+  } catch {
+    orInfo = { at: Date.now(), data: null };
+  }
+  return orInfo.data;
+}
+
 // Streaming dari endpoint kompatibel OpenAI (Gemini, Groq, OpenRouter). Menghasilkan potongan teks.
 async function* streamOpenAI(p, model, system, messages, signal) {
   const r = await fetch(`${p.baseURL}/chat/completions`, {
@@ -129,7 +194,12 @@ async function* streamOpenAI(p, model, system, messages, signal) {
       ...p.extra,
     }),
   });
-  if (!r.ok) throw httpError(r.status, await r.text());
+  noteHeaders(p, model, r.headers);
+  if (!r.ok) {
+    const body = await r.text();
+    if (r.status === 429) noteLimited(p, model, r.headers, body);
+    throw httpError(r.status, body);
+  }
 
   const dec = new TextDecoder();
   let buf = '';
@@ -165,6 +235,10 @@ async function* generate(agent, system, messages, signal) {
         yield t;
       }
       if (!sent) throw httpError(502, 'jawaban kosong');
+      const q = quotaOf(p, model);
+      q.used += 1;
+      q.blockedUntil = 0;
+      saveQuota();
       console.log(`[chat] ${agent.id} via ${p.name} model=${model}`);
       return;
     } catch (err) {
@@ -293,6 +367,27 @@ app.get('/api/config', (req, res) => {
 });
 
 app.get('/api/verify', requireAccess, (req, res) => res.json({ ok: true }));
+
+// Sisa kuota per model, urut sesuai prioritas provider. limit/remaining null = belum diketahui.
+app.get('/api/quota', requireAccess, async (req, res) => {
+  const now = Date.now();
+  const rows = [];
+  for (const p of PROVIDERS) {
+    const free = p.name === 'openrouter' ? await openRouterFree(p) : null;
+    for (const [role, model] of [['leader', p.leader], ['tim', p.team]]) {
+      if (role === 'tim' && model === p.leader) continue;
+      const q = quotaOf(p, model);
+      const limit = free?.limit ?? q.limit ?? null;
+      const remaining = free?.remaining ?? q.remaining ?? (limit == null ? null : Math.max(0, limit - q.used));
+      rows.push({
+        provider: p.name, model, role, used: free?.used ?? q.used, limit, remaining,
+        shared: Boolean(free), // jatah OpenRouter dibagi semua model gratis
+        blockedFor: Math.max(0, (q.blockedUntil || 0) - now),
+      });
+    }
+  }
+  res.json({ demo: DEMO, rows });
+});
 
 app.post('/api/chat', requireAccess, rateLimit, dailyCap, async (req, res) => {
   const agent = agentById(req.body?.agentId);

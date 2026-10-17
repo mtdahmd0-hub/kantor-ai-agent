@@ -4,6 +4,10 @@ import { createStage } from './stage.js';
 import { createTags } from './tags.js';
 import { createPanel } from './panel.js';
 import { fetchConfig, getCode, setCode } from './chat.js';
+import { initQuota } from './quota.js';
+
+const quota = initQuota();
+let quotaTimer = 0;
 
 const $ = (id) => document.getElementById(id);
 const mobile = matchMedia('(max-width: 760px)');
@@ -71,6 +75,10 @@ function setStatus(id, status) {
   if (!c) return;
   clearTimeout(doneTimers.get(id));
   c.status = status;
+  if (status !== 'working') { // ada yang selesai: perbarui bar kuota (digabung kalau banyak sekaligus)
+    clearTimeout(quotaTimer);
+    quotaTimer = setTimeout(quota.refresh, 800);
+  }
   if (status === 'done') {
     doneTimers.set(id, setTimeout(() => { if (c.status === 'done') c.status = 'idle'; }, 5000));
   }
