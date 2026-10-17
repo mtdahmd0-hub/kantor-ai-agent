@@ -409,8 +409,14 @@ async function* managerWork(manager, messages, signal, onStatus) {
     plan.tasks.map((t) => `- **${divName(t.agent)}** → ${firstName(t.agent)}${hasTeam(t.agent) ? ' & tim' : ''}: ${firstLine(t.task)}`));
 
   // 2. Divisi bekerja bersamaan
+  // Tugas divisi ditaruh paling depan + daftar bagian divisi lain, supaya tiap divisi (dan timnya)
+  // hanya mengerjakan bagiannya; brief asli hanya konteks. Tanpa ini semua divisi mengerjakan seluruh brief.
   const work = (head, task) => {
-    const content = `Brief dari user:\n"""\n${brief}\n"""\n\nTugas divisimu dari ${manager.name}:\n${task}`;
+    const others = plan.tasks.filter((t) => t.agent !== head)
+      .map((t) => `- ${divName(t.agent)}: ${firstLine(t.task)}`).join('\n');
+    const content = `Tugas divisimu dari ${manager.name} (kerjakan HANYA ini):\n${task}\n\n`
+      + (others ? `Bagian lain sudah dikerjakan divisi lain, JANGAN ikut dibuat:\n${others}\n\n` : '')
+      + `Brief asli user (hanya untuk konteks):\n"""\n${brief}\n"""`;
     return hasTeam(head)
       ? collect(teamWork(head, [{ role: 'user', content }], signal, onStatus, false))
       : collect(generate(head, `${buildSystemPrompt(head)}\n\n${MANAGER_TASK}`, [{ role: 'user', content }], signal));

@@ -39,7 +39,7 @@ const DIVISION_BRIEF = {
 // ---------- Mode kerja tim (leader membagi tugas ke anggota, lalu menggabungkan) ----------
 export const teamPlanPrompt = (mates) => `MODE KERJA TIM. User memberi brief untuk dikerjakan bersama timmu. Tugasmu sekarang HANYA membagi pekerjaan, bukan mengerjakannya.
 Anggota tim: ${mates.map((m) => `${m.id} = ${m.name} (${m.role}: ${m.focus})`).join('; ')}.
-Pilih anggota yang relevan saja (minimal 1). Anggota tidak melihat percakapan ini, jadi tulis tugas yang lengkap dan berdiri sendiri: sertakan konteks penting dari brief dan hasil apa yang diharapkan.
+Pilih anggota yang relevan saja (minimal 1). Bagi hanya pekerjaan yang memang diminta; kalau ada bagian yang disebut sudah dikerjakan divisi lain, jangan dibagikan. Anggota tidak melihat percakapan ini, jadi tulis tugas yang lengkap dan berdiri sendiri: sertakan konteks penting dari brief dan hasil apa yang diharapkan.
 Balas HANYA dengan JSON tanpa teks lain, format:
 {"rencana": "satu kalimat strategi", "tugas": [{"id": "<id anggota>", "tugas": "<instruksi lengkap>"}]}`;
 
@@ -55,7 +55,7 @@ Pilih divisi yang benar-benar dibutuhkan saja (biasanya 2-4, jangan semua kalau 
 Balas HANYA dengan JSON tanpa teks lain, format:
 {"rencana": "satu kalimat strategi", "tugas": [{"id": "<id penanggung jawab>", "tugas": "<instruksi lengkap>"}]}`;
 
-export const MANAGER_TASK = `MODE KERJA ANTAR DIVISI. General Manager memberi divisimu satu bagian pekerjaan dari brief besar. Kerjakan bagianmu saja sampai jadi, langsung hasilnya. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
+export const MANAGER_TASK = `MODE KERJA ANTAR DIVISI. General Manager memberi divisimu satu bagian pekerjaan dari brief besar. Kerjakan bagianmu saja sampai jadi, langsung hasilnya; bagian yang dikerjakan divisi lain jangan dibuat. Jangan balik bertanya; kalau info kurang, pakai asumsi yang masuk akal dan sebutkan singkat di akhir.`;
 
 export const MANAGER_FINAL = `MODE KERJA ANTAR DIVISI. Semua divisi sudah mengerjakan bagiannya. Satukan jadi SATU paket kerja final yang rapi untuk user: urutkan per bagian dengan judul jelas, samakan nama/angka/asumsi yang bertentangan antar divisi, buang yang dobel, dan pertahankan detail penting (copy, harga, checklist, kode). Langsung tulis hasilnya tanpa menceritakan proses. Kalau ada materi yang akan dibuat jadi video/visual/website/slide, kumpulkan semua prompt dari divisi ke satu bagian "## 📋 Prompt siap pakai" di bagian akhir (blok kode tetap utuh, nama produk/harga/copy diseragamkan). Di akhir, tambahkan "Langkah berikutnya" maksimal 5 poin.`;
 
