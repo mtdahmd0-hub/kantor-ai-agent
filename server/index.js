@@ -18,7 +18,7 @@ const FINAL_MAX_TOKENS = Number(env.FINAL_MAX_TOKENS || 3000);
 const RATE_PER_MINUTE = Number(env.RATE_PER_MINUTE || 15);
 const DAILY_MAX_REQUESTS = Number(env.DAILY_MAX_REQUESTS || 300);
 const MAX_HISTORY = 20;
-const MAX_CHARS = 4000;
+const MAX_CHARS = 12_000; // pesan user: cukup untuk paste Pine Script / brief panjang (±3.000 token, masih muat di jatah Groq)
 
 // Provider AI. Yang tidak punya key dilewati. Dicoba sesuai LLM_ORDER; kalau satu gagal
 // sebelum sempat mengirim teks, otomatis pindah ke provider berikutnya.
